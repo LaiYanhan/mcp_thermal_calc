@@ -1,6 +1,6 @@
 """
 运行能耗与经营毛收益原子公式 (Operating Consumption & Gross Spread Formulas)
-对应图1中“售汽价格 - 购电价格 = 收益（差）”及其年化指标计算。
+包含消纳电量、供汽总量、购电成本、售汽收入及经营毛收益差额计算。
 """
 
 from core.formula import AlgebraicFormula, default_formula_registry
@@ -14,7 +14,7 @@ daily_electricity_formula = AlgebraicFormula(
         name="日消纳谷电电量计算",
         category="operation",
         description="根据电加热器运行功率与每日谷电蓄热时长，计算每日电加热器实际消纳的电量（MWh/d）。",
-        notes="对应图1右下【用电量】节点，单位为 MWh（兆瓦时，相当于1000度电）。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("electric_heater_power", "MW", "电加热器运行功率", min_value=0.1, max_value=2000.0),
@@ -32,14 +32,14 @@ daily_electricity_formula = AlgebraicFormula(
 
 # ================= 2. 年消纳谷电电量计算 =================
 # 公式：每日消纳谷电电量 * 年运行天数 / 10 = 年累计用电量
-# 单位：1 MWh = 1000 kWh = 0.1 万kWh，因此 (MWh * 天) / 10 = 万kWh
+# 单位推导：1 MWh = 1000 kWh = 0.1 万kWh，因此 (MWh * 天) / 10 = 万kWh
 annual_electricity_formula = AlgebraicFormula(
     metadata=FormulaMetadata(
         id="operation.annual_electricity",
         name="年消纳谷电电量计算",
         category="operation",
         description="根据日消纳电量与年有效运行天数，测算年用电总量（万kWh/年）。",
-        notes="对齐《计算!D9》：=D7*输入!D8*输入!D9/10。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("daily_power_mwh", "MWh", "每日消纳谷电电量", min_value=0.1, max_value=48000.0),
@@ -63,7 +63,7 @@ daily_steam_production_formula = AlgebraicFormula(
         name="日外供蒸汽总量计算",
         category="operation",
         description="根据额定蒸汽流量与每日连续供汽时长，计算每日累计输出的蒸汽吨数（t/d）。",
-        notes="对应图1中间【蒸汽流量 * 供汽时长】。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("steam_mass_flow", "t/h", "蒸汽瞬时流量", min_value=0.1, max_value=2000.0, default_value=100.0),
@@ -87,7 +87,7 @@ annual_steam_production_formula = AlgebraicFormula(
         name="年外供蒸汽总量计算",
         category="operation",
         description="根据每日供汽量与年运行天数，计算年累计供汽量（万t/年）。",
-        notes="对齐《计算!D10》：=输入!D4*输入!D8*输入!D9/10000。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("daily_steam_tons", "t", "每日供汽总量", min_value=0.1, max_value=48000.0),
@@ -111,7 +111,7 @@ daily_electricity_cost_formula = AlgebraicFormula(
         name="每日购电成本计算",
         category="operation",
         description="根据日耗电量（MWh转化为度数*1000）与低谷电价，计算每日电费支出（元/d）。",
-        notes="图1右下【价格（电费）】计算。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("daily_power_mwh", "MWh", "每日消纳谷电电量", min_value=0.1, max_value=48000.0),
@@ -135,7 +135,7 @@ daily_steam_revenue_formula = AlgebraicFormula(
         name="每日售汽收入计算",
         category="operation",
         description="根据日供汽吨数与市售蒸汽单价，计算每日售汽营业额（元/d）。",
-        notes="图1左下【售蒸汽价格】计算。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("daily_steam_tons", "t", "每日供汽总量", min_value=0.1, max_value=48000.0),
@@ -159,7 +159,7 @@ daily_operating_spread_formula = AlgebraicFormula(
         name="每日经营毛收益差额计算",
         category="operation",
         description="每日售汽收入与低谷购电成本的直接差额（毛利空间）（元/d）。",
-        notes="图1最底端核心终点：【售汽 - 产汽 = 差（收益）】。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("daily_steam_revenue", "元", "每日售汽营业收入", min_value=0.0, max_value=50000000.0),
@@ -183,7 +183,7 @@ annual_operating_spread_formula = AlgebraicFormula(
         name="年化经营毛收益差额测算",
         category="operation",
         description="按年有效运营天数将日度毛利差额折算为年化经营毛利（万元/年）。",
-        notes="为企业快速评估项目基本经济性提供首要参考指标（未扣除水费、人工及固定资产折旧）。",
+        notes="未扣除除盐水水费、厂用动力电及设备折旧人工。",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("daily_operating_spread", "元", "每日经营毛收益差额", min_value=-10000000.0, max_value=50000000.0),

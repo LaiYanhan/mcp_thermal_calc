@@ -10,7 +10,7 @@ from core.formula import registry as default_formula_registry
 
 
 class WorkflowState(str, Enum):
-    """图2工作流状态"""
+    """工作流阶段状态枚举"""
     INITIAL = "INITIAL"  # 初始态：等待输入数据与人类需求
     SCENARIO_PROPOSED = "SCENARIO_PROPOSED"  # 场景提议态：AI匹配或新建场景，等待人工确认
     SCENARIO_CONFIRMED = "SCENARIO_CONFIRMED"  # 场景确认态：人工已确认场景，进入输入变量匹配
