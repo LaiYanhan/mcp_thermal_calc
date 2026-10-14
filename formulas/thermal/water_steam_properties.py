@@ -1,7 +1,6 @@
 """
 水和水蒸气热力学物性查表公式 (IAPWS-IF97 Water & Steam Thermodynamic Properties)
-数据对齐《研究资料/参考excel/输入输出2.xlsx》工作表【计算】第3、4行：
-=enthalpy("water", "PT", "SI with C", P, T)
+封装 IAPWS-IF97 国际水蒸气热力学状态方程。
 """
 
 from pyXSteam.XSteam import XSteam

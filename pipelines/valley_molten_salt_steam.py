@@ -1,8 +1,6 @@
 """
 基准计算管道：谷电熔盐储热供蒸汽场景 (Valley Molten Salt Thermal Storage Steam Supply Pipeline)
-严格对应图1手写业务流程与《研究资料/参考excel/输入输出2.xlsx》。
 """
-
 from constants.default_parameters import DEFAULT_VALLEY_SALT_STEAM_PARAMS
 from core.pipeline import Pipeline, PipelineStep, pipeline_registry
 from core.types import Pin

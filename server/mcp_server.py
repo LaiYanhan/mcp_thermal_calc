@@ -187,7 +187,7 @@ def execute_calculation(
                 "error": str(e),
                 "instruction_for_agent": (
                     "严重警告：计算被系统状态机安全守卫物理拦截！"
-                    "您必须按照图2工作流先向人类呈现参数清单，获得人类显式确认后"
+                    "您必须先向人类呈现参数清单，获得人类显式确认后"
                     "调用 confirm_parameters(confirmed=True)，方可授权计算。"
                 ),
             },

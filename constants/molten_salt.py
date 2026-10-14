@@ -1,6 +1,5 @@
 """
 熔盐热物理特性基准与状态方程 (Molten Salt Thermophysical Properties)
-数据对齐《研究资料/参考excel/输入输出2.xlsx》工作表【熔盐参数】。
 包含 HITEC 熔盐与太阳盐（Solar Salt）的工作温区、密度、导热系数、粘度与比热容计算方程。
 """
 

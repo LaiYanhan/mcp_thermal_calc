@@ -1,6 +1,6 @@
 """
 热平衡与储能热负荷原子公式 (Thermal Energy Balance Formulas)
-基于图1流程与《输入输出2.xlsx》计算表，包含代数解析公式，基于 SymPy 支持自动多向推导求解。
+包含进出口焓差、换热功率、储热容量、电加热功率与熔盐质量计算。
 """
 
 from core.formula import AlgebraicFormula, default_formula_registry
@@ -39,7 +39,7 @@ sgs_power_formula = AlgebraicFormula(
         name="SGS蒸汽发生器换热功率计算",
         category="thermal",
         description="根据额定蒸汽质量流量与进出口焓差，计算蒸汽发生器（SGS）的瞬态热功率负荷（MWt）。",
-        notes="除以 3600 为物理单位转换系数：(t/h)*(kJ/kg) 转换为 MWt。图1核心节点，对应连续热功率需求。",
+        notes="除以 3600 为物理单位转换系数：(t/h)*(kJ/kg) 转换为 MWt。",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("steam_mass_flow", "t/h", "额定蒸汽质量流量", min_value=0.1, max_value=2000.0, default_value=100.0),
@@ -57,14 +57,13 @@ sgs_power_formula = AlgebraicFormula(
 
 # ================= 3. 供汽周期总制热量/吸热量计算 =================
 # 公式：SGS换热功率 * 供汽时长 / 换热综合效率 = 供汽期总吸热量
-# 参考《计算!D6》：=D5*输入!D7/输入!D13
 steam_heat_supply_formula = AlgebraicFormula(
     metadata=FormulaMetadata(
         id="thermal.steam_heat_supply",
         name="供汽期总吸热量（制热量）计算",
         category="thermal",
         description="根据 SGS 功率、每日供汽时长及换热器效率，计算每日产汽期熔盐侧需要向工质释放的总热量（MWh）。",
-        notes="考虑了换热器不完全换热损失（除以换热效率 0.99）。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("sgs_power", "MW", "SGS瞬态换热功率", min_value=0.1, max_value=2000.0),
@@ -83,14 +82,13 @@ steam_heat_supply_formula = AlgebraicFormula(
 
 # ================= 4. 储热罐总储热容量计算 =================
 # 公式：供汽期总吸热量 / 储热罐保温与储热效率 = 储热罐额定储热量
-# 参考《计算!D8》：=D6/输入!D14
 thermal_storage_capacity_formula = AlgebraicFormula(
     metadata=FormulaMetadata(
         id="thermal.thermal_storage_capacity",
         name="储热罐额定储热量计算",
         category="thermal",
         description="根据每日所需制热量及储热罐保温与储热效率，计算储罐必须储存的总热量（MWht）。",
-        notes="考虑了储罐散热与循环储能损耗（除以储热效率 0.99）。",
+        notes="",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("steam_heat_supply", "MWh", "每日供汽总释热量", min_value=0.1, max_value=50000.0),
@@ -108,14 +106,13 @@ thermal_storage_capacity_formula = AlgebraicFormula(
 
 # ================= 5. 电加热器功率计算（时长解耦） =================
 # 公式：供汽期总吸热量 / 谷电时长 / 电加热器电热效率 = 电加热器额定电功率
-# 参考《计算!D7》：=D6/输入!D8/输入!D10
 electric_heater_power_formula = AlgebraicFormula(
     metadata=FormulaMetadata(
         id="thermal.electric_heater_power",
         name="电加热器额定电功率计算",
         category="thermal",
         description="根据每日蓄热需求、谷电蓄热时间窗口与电加热器电热转化效率，计算电加热器所需额定电功率（MWe）。",
-        notes="图1手写重点标注：供汽时长与谷电时长在此完全解耦，以总能量守恒折算加热功率。",
+        notes="供汽时长与谷电时长已解耦，以总能量守恒折算加热功率。",
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("steam_heat_supply", "MWh", "每日供汽总释热量", min_value=0.1, max_value=50000.0),
@@ -134,8 +131,7 @@ electric_heater_power_formula = AlgebraicFormula(
 
 # ================= 6. 熔盐总装填量计算 =================
 # 公式：储热罐额定储热量 * 3600 / (熔盐平均比热容 * (高温熔盐温度 - 低温熔盐温度)) * 设计安全冗余系数 = 熔盐装填总质量
-# 参考《选型!D9》：=ROUNDUP(D4*3600/D8/(D6-D7)*1.1, -1)
-# 单位：(MWh * 3600 MJ/MWh * 1000 kJ/MJ) / (kJ/kg * (Th-Tc)) = kg / 1000 = t
+# 单位推导：(MWh * 3600 MJ/MWh * 1000 kJ/MJ) / (kJ/kg * (Th-Tc)) = kg / 1000 = t
 molten_salt_mass_formula = AlgebraicFormula(
     metadata=FormulaMetadata(
         id="thermal.molten_salt_mass",

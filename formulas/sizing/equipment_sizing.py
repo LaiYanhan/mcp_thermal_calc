@@ -1,7 +1,6 @@
 """
 设备离散选型原子公式 (Discrete Equipment Sizing Formulas)
 遵循 ADR 0003，将设备整定选型规则抽象为标准原子公式节点，平铺融入计算流水线。
-对齐《研究资料/参考excel/输入输出2.xlsx》工作表【选型】。
 """
 
 import math
@@ -28,7 +27,7 @@ sgs_sizing_formula = EmpiricalFormula(
         name="SGS蒸汽发生器规格整定选型",
         category="sizing",
         description="根据理论计算的 SGS 换热功率需求，按制造商标准化规格（每5MW为一档）向上圆整确定选型型号。",
-        notes="对应《选型!D10》：=ROUNDUP(计算!D5, 0) 并参照设备型号表 5MW 步长整定。",
+        notes="按制造商5MW标准步长向上圆整。",
         formula_type=FormulaType.EMPIRICAL,
         inputs=[
             Pin("sgs_power", "MW", "SGS理论换热功率需求", min_value=0.1, max_value=2000.0)
@@ -56,7 +55,7 @@ heater_sizing_formula = EmpiricalFormula(
         name="电加热器规格整定选型",
         category="sizing",
         description="根据理论电加热功率需求，按标准模块（5MW模数）向上整定选型规格。",
-        notes="对应《选型!D2》：=ROUNDUP(计算!D7, -1) 或 5MW 模块向上并联选型。",
+        notes="按5MW标准电加热模块向上整定选型。",
         formula_type=FormulaType.EMPIRICAL,
         inputs=[
             Pin("electric_heater_power", "MW", "电加热器理论电功率需求", min_value=0.1, max_value=2000.0)
@@ -85,7 +84,7 @@ transformer_sizing_formula = EmpiricalFormula(
         name="主变压器标准容量查表选型",
         category="sizing",
         description="根据电加热器选型功率（功率因数取1.0），从国家标准变压器容量序列 [6.3, 8, 10, 12.5, 16, 20, 25, 31.5, 40, 50, 63, 90, 120] MVA 中向上匹配最接近的标准容量。",
-        notes="对应《选型!D11》IFS 条件查表逻辑。若超过 120 MVA 则建议采用多台变压器组合。",
+        notes="若计算容量超过 120 MVA，建议采用多台变压器组合。",
         formula_type=FormulaType.EMPIRICAL,
         inputs=[
             Pin("heater_sizing_mw", "MW", "电加热器选型功率", min_value=1.0, max_value=2000.0)
@@ -114,7 +113,7 @@ salt_mass_roundup_formula = EmpiricalFormula(
         name="熔盐订货量工程整定",
         category="sizing",
         description="将理论计算熔盐净重向上圆整至整10吨，便于设备罐容设计与大宗原材料采购订货。",
-        notes="对应《选型!D9》ROUNDUP(..., -1)。",
+        notes="",
         formula_type=FormulaType.EMPIRICAL,
         inputs=[
             Pin("salt_mass", "t", "理论熔盐装填量", min_value=1.0, max_value=1000000.0)
