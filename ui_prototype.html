@@ -141,7 +141,7 @@
         </button>
       </div>
       <span id="stage-desc-hint" class="text-xs font-bold text-slate-700 font-sans">
-        // 阶段 01: 流程拓扑审核（点击空白按住可拖动画布；所有卡片与常量块均支持自由拖动排版）
+        // 阶段 01: 流程拓扑审核
       </span>
     </div>
 
@@ -173,11 +173,10 @@
   <div class="flex-1 flex overflow-hidden relative">
 
     <!-- 滚动画布容器 (监听鼠标点击空白实现画布平移 Canvas Panning) -->
-    <main id="canvas-container" class="flex-1 overflow-auto custom-scroll bg-paper-grid relative p-8 canvas-panning">
+    <main id="canvas-container" class="flex-1 overflow-hidden bg-paper-grid relative canvas-panning" style="background-position: 0px 0px;">
 
       <!-- 纯净流程图工作区 (所有输入、算子、常量、多目标输出卡片均可自由拖拽) -->
-      <div id="dag-workspace" class="relative w-[1640px] h-[820px] mx-auto select-text">
-
+      <div id="dag-workspace" class="relative w-[1640px] h-[820px] select-text" style="transform-origin: 0 0; margin-left: 40px; margin-top: 30px; will-change: transform;">
         <!-- ======================= 背景 SVG 弹性动态避障连线层 ======================= -->
         <svg id="svg-wiring-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -780,6 +779,9 @@
     };
 
     function resetLayoutPositions() {
+      panX = 0;
+      panY = 0;
+      applyPan();
       for (const [id, pos] of Object.entries(defaultPositions)) {
         const el = document.getElementById(id);
         if (el) {
@@ -891,24 +893,42 @@
     let initialLeft = 0;
     let initialTop = 0;
 
-    // 画布背景平移 (Canvas Panning)
+    // 全局画布平移与节点拖拽引擎
+    let draggingEl = null;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let initialLeft = 0;
+    let initialTop = 0;
+
+    // 画布背景平移变量 (Canvas Panning via CSS Translate)
+    let panX = 0;
+    let panY = 0;
     let isPanning = false;
     let panStartX = 0;
     let panStartY = 0;
-    let scrollStartX = 0;
-    let scrollStartY = 0;
+    let initialPanX = 0;
+    let initialPanY = 0;
+    let hasMovedCanvas = false;
+
+    function applyPan() {
+      const workspace = document.getElementById("dag-workspace");
+      const container = document.getElementById("canvas-container");
+      if (workspace) workspace.style.transform = `translate(${panX}px, ${panY}px)`;
+      if (container) container.style.backgroundPosition = `${panX}px ${panY}px`;
+    }
 
     function initPanAndDrag() {
       const container = document.getElementById("canvas-container");
 
       // 1. 画布空白处拖动平移视野
       container.addEventListener("mousedown", (e) => {
-        if (e.target.closest(".flow-node-box") || e.target.closest("button") || e.target.closest("input")) return;
+        if (e.target.closest(".flow-node-box") || e.target.closest("button") || e.target.closest("input") || e.target.closest("aside") || e.target.closest("#modal-add-op") || e.target.closest("#modal-add-const")) return;
         isPanning = true;
+        hasMovedCanvas = false;
         panStartX = e.clientX;
         panStartY = e.clientY;
-        scrollStartX = container.scrollLeft;
-        scrollStartY = container.scrollTop;
+        initialPanX = panX;
+        initialPanY = panY;
         container.style.cursor = "grabbing";
         e.preventDefault();
       });
@@ -931,13 +951,15 @@
         });
       });
 
-      // 全局移动监听
+      // 全局移动监听 (平移画布或拖动卡片)
       document.addEventListener("mousemove", (e) => {
         if (isPanning) {
           const dx = e.clientX - panStartX;
           const dy = e.clientY - panStartY;
-          container.scrollLeft = scrollStartX - dx;
-          container.scrollTop = scrollStartY - dy;
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMovedCanvas = true;
+          panX = initialPanX + dx;
+          panY = initialPanY + dy;
+          applyPan();
           return;
         }
 
@@ -962,11 +984,17 @@
         }
       });
 
-      // 全局释放监听
+      // 全局释放监听 (若只点击未移动，自动关闭抽屉)
       document.addEventListener("mouseup", () => {
         if (isPanning) {
           isPanning = false;
           container.style.cursor = "grab";
+          if (!hasMovedCanvas) {
+            closeDrawer();
+            closeOutputSummaryDrawer();
+            document.querySelectorAll(".flow-node-box").forEach(el => el.classList.remove("selected"));
+            document.getElementById("node-floating-toolbar").classList.add("hidden");
+          }
         }
         if (draggingEl) {
           draggingEl.style.zIndex = "10";
@@ -974,7 +1002,6 @@
         }
       });
     }
-
     // ======================== 节点选中与浮动操作条交互 ========================
     function selectNode(opId, event) {
       if (event) event.stopPropagation();
@@ -999,7 +1026,9 @@
     }
 
     document.addEventListener("click", (e) => {
-      if (!e.target.closest(".flow-node-box") && !e.target.closest("#node-floating-toolbar") && !e.target.closest("#operator-drawer") && !e.target.closest("#modal-add-op") && !e.target.closest("#modal-add-const")) {
+      if (!e.target.closest(".flow-node-box") && !e.target.closest("#node-floating-toolbar") && !e.target.closest("#operator-drawer") && !e.target.closest("#output-summary-drawer") && !e.target.closest("#modal-add-op") && !e.target.closest("#modal-add-const") && !e.target.closest("header")) {
+        closeDrawer();
+        closeOutputSummaryDrawer();
         document.querySelectorAll(".flow-node-box").forEach(el => el.classList.remove("selected"));
         document.getElementById("node-floating-toolbar").classList.add("hidden");
       }
@@ -1124,22 +1153,59 @@
       if (stage === 1) {
         tab1.className = "px-4 py-1 font-black rounded transition-all flex items-center gap-2 bg-white text-paper-text shadow-xs";
         tab2.className = "px-4 py-1 font-bold text-paper-muted hover:text-paper-text rounded transition-all flex items-center gap-2";
-        hint.innerText = "// 阶段 01: 流程拓扑审核（点击空白按住可平移画布；所有卡片与常量块均支持自由拖动）";
+        hint.innerText = "// 阶段 01: 流程拓扑审核";
         btnText.innerText = "确认场景拓扑";
       } else {
         tab2.className = "px-4 py-1 font-black rounded transition-all flex items-center gap-2 bg-white text-paper-text shadow-xs";
         tab1.className = "px-4 py-1 font-bold text-paper-muted hover:text-paper-text rounded transition-all flex items-center gap-2";
-        hint.innerText = "// 阶段 02: 工况参数填报与核对（输入框实时驱动全流程多目标成果联动）";
+        hint.innerText = "// 阶段 02: 工况参数填报与核对";
         btnText.innerText = "保存参数并授权计算";
       }
       updateDagWiring();
     }
 
-    function handlePrimaryAction() {
+    async function handlePrimaryAction() {
       if (activeStage === 1) {
+        if (window.location.protocol !== "file:") {
+          try {
+            await fetch(`/api/session/${sessionId}/confirm_scenario`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ confirmed: true, feedback: "" })
+            });
+          } catch (e) { console.error(e); }
+        }
         alert("【拓扑审核通过】流水线逻辑已确认！进入阶段 02 参数核实。");
         switchStage(2);
       } else {
+        if (window.location.protocol !== "file:") {
+          try {
+            const params = {
+              steam_pressure: parseFloat(document.getElementById("inp-sp").value),
+              steam_temperature: parseFloat(document.getElementById("inp-st").value),
+              feedwater_pressure: parseFloat(document.getElementById("inp-fp").value),
+              feedwater_temperature: parseFloat(document.getElementById("inp-ft").value),
+              steam_mass_flow: parseFloat(document.getElementById("inp-flow").value),
+              steam_market_price: parseFloat(document.getElementById("inp-steam-price").value),
+              valley_electricity_price: parseFloat(document.getElementById("inp-elec-price").value),
+              heat_exchanger_efficiency: parseFloat(document.getElementById("inp-eff-hx").value),
+              valley_electricity_hours: parseFloat(document.getElementById("inp-valley-hours").value),
+            };
+            await fetch(`/api/session/${sessionId}/parameters`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ parameters: params })
+            });
+            await fetch(`/api/session/${sessionId}/confirm_parameters`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ confirmed: true, feedback: "" })
+            });
+            const calcResp = await fetch(`/api/session/${sessionId}/calculate`, { method: "POST" });
+            const calcData = await calcResp.json();
+            console.log("[计算结果已完成]", calcData);
+          } catch (e) { console.error(e); }
+        }
         alert("【参数确认授权】所有工况数值已通过人工审核！系统状态流转为 PARAMETERS_CONFIRMED，解除计算拦截。");
       }
     }
@@ -1170,7 +1236,7 @@
       document.getElementById("operator-drawer").classList.add("translate-x-full");
     }
 
-    function saveDrawer() {
+    async function saveDrawer() {
       if (!selectedOpId) return;
       const op = operatorRegistry[selectedOpId];
       if (!op) return;
@@ -1178,6 +1244,21 @@
       op.name = document.getElementById("drawer-name").value;
       op.formula = document.getElementById("drawer-formula").value;
       op.desc = document.getElementById("drawer-desc").value;
+
+      if (window.location.protocol !== "file:") {
+        try {
+          await fetch("/api/operator/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              operator_id: selectedOpId,
+              name: op.name,
+              formula: op.formula,
+              description: op.desc
+            })
+          });
+        } catch (e) { console.error(e); }
+      }
 
       alert(`【算子原地更新】算子 ${selectedOpId} 已更新并生效！`);
       closeDrawer();
@@ -1191,13 +1272,24 @@
     function closeAddOperatorModal() {
       document.getElementById("modal-add-op").classList.add("hidden");
     }
-    function confirmNewOperator() {
+    async function confirmNewOperator() {
       const selectVal = document.getElementById("select-lib-op").value;
       const id = document.getElementById("new-id").value.trim() || selectVal;
       const name = document.getElementById("new-name").value.trim() || selectVal;
       const eq = document.getElementById("new-eq").value.trim() || "q = m * dh";
 
       operatorRegistry[id] = { name: name, formula: eq, desc: "由工程师手动插入的计算算子。", pins: [] };
+
+      if (window.location.protocol !== "file:") {
+        try {
+          await fetch("/api/operator/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: id, name: name, equation: eq })
+          });
+        } catch (e) { console.error(e); }
+      }
+
       closeAddOperatorModal();
       alert(`【算子选装成功】算子 ${id} (${name}) 已成功插入流水线！`);
       runLiveRecalc();
@@ -1256,10 +1348,43 @@
       runLiveRecalc();
     }
 
+    // 会话与后台 REST API 交互
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get("session_id") || "default_session";
+    const initialStageParam = parseInt(urlParams.get("stage") || "1");
+
+    async function syncFromBackend() {
+      if (window.location.protocol === "file:") return;
+      try {
+        const resp = await fetch(`/api/session/${sessionId}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        console.log("[REST API] 已成功同步后台会话数据:", data);
+        if (data.provided_parameters) {
+          const p = data.provided_parameters;
+          if (p.steam_pressure) document.getElementById("inp-sp").value = p.steam_pressure;
+          if (p.steam_temperature) document.getElementById("inp-st").value = p.steam_temperature;
+          if (p.feedwater_pressure) document.getElementById("inp-fp").value = p.feedwater_pressure;
+          if (p.feedwater_temperature) document.getElementById("inp-ft").value = p.feedwater_temperature;
+          if (p.steam_mass_flow) document.getElementById("inp-flow").value = p.steam_mass_flow;
+          if (p.steam_market_price) document.getElementById("inp-steam-price").value = p.steam_market_price;
+          if (p.valley_electricity_price) document.getElementById("inp-elec-price").value = p.valley_electricity_price;
+          if (p.heat_exchanger_efficiency) document.getElementById("inp-eff-hx").value = p.heat_exchanger_efficiency;
+        }
+        if (initialStageParam === 2 || data.current_state === "SCENARIO_CONFIRMED" || data.current_state === "PARAMETERS_INSPECTED") {
+          switchStage(2);
+        }
+        runLiveRecalc();
+      } catch (err) {
+        console.warn("[REST API] 离线演示模式:", err);
+      }
+    }
+
     window.addEventListener("load", () => {
       runLiveRecalc();
       updateDagWiring();
       initPanAndDrag();
+      syncFromBackend();
 
       const ro = new ResizeObserver(() => updateDagWiring());
       ro.observe(document.getElementById("dag-workspace"));
@@ -1268,6 +1393,6 @@
 
     runLiveRecalc();
     updateDagWiring();
-  </script>
+    </Script>
 </body>
 </html>

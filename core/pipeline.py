@@ -141,6 +141,90 @@ class Pipeline:
             economic_summary=economic_summary
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典结构，供前端渲染引擎与持久化存储使用"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "category": self.category,
+            "description": self.description,
+            "notes": self.notes,
+            "required_inputs": [
+                {
+                    "name": pin.name,
+                    "unit": pin.unit,
+                    "description": pin.description,
+                    "min_value": pin.min_value,
+                    "max_value": pin.max_value,
+                    "default_value": pin.default_value,
+                }
+                for pin in self.required_inputs
+            ],
+            "steps": [step.model_dump() for step in self.steps],
+            "sizing_output_keys": self.sizing_output_keys,
+            "economic_output_keys": self.economic_output_keys,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Pipeline":
+        """从字典反序列化生成管道实例"""
+        required_inputs = [
+            Pin(
+                name=p["name"],
+                unit=p["unit"],
+                description=p["description"],
+                min_value=p.get("min_value"),
+                max_value=p.get("max_value"),
+                default_value=p.get("default_value"),
+            )
+            for p in data.get("required_inputs", [])
+        ]
+        steps = [
+            PipelineStep(
+                step_id=s["step_id"],
+                formula_id=s["formula_id"],
+                input_map=s["input_map"],
+                output_map=s["output_map"],
+                description=s.get("description", ""),
+            )
+            for s in data.get("steps", [])
+        ]
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            category=data.get("category", "custom"),
+            description=data.get("description", ""),
+            notes=data.get("notes", ""),
+            required_inputs=required_inputs,
+            steps=steps,
+            sizing_output_keys=data.get("sizing_output_keys", []),
+            economic_output_keys=data.get("economic_output_keys", []),
+        )
+
+    def insert_step(self, target_step_id: str, new_step: PipelineStep, position: str = "after") -> None:
+        """在指定步骤的前方或后方插入新算子步骤"""
+        idx = next((i for i, s in enumerate(self.steps) if s.step_id == target_step_id), -1)
+        if idx == -1:
+            self.steps.append(new_step)
+        else:
+            insert_idx = idx + 1 if position == "after" else idx
+            self.steps.insert(insert_idx, new_step)
+
+    def delete_step(self, step_id: str) -> Optional[PipelineStep]:
+        """从流水线中移除指定算子步骤"""
+        idx = next((i for i, s in enumerate(self.steps) if s.step_id == step_id), -1)
+        if idx != -1:
+            return self.steps.pop(idx)
+        return None
+
+    def replace_step(self, step_id: str, new_step: PipelineStep) -> bool:
+        """替换流水线中的指定算子步骤"""
+        idx = next((i for i, s in enumerate(self.steps) if s.step_id == step_id), -1)
+        if idx != -1:
+            self.steps[idx] = new_step
+            return True
+        return False
+
 
 class PipelineRegistry:
     """
