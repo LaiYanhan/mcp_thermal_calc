@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>热工计算流程与参数可视化核对</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: {
+              bg: '#FAF7EE',        // 手绘图同款米白/暖象牙底色
+              card: '#FFFFFF',
+              border: '#E2DDD2',
+              borderDark: '#8C8275',
+              text: '#1F2429',       // 高清晰深炭灰
+              muted: '#766E65',
+              yellow: '#FAD02C',     // 柔和工业暖黄
+              yellowHover: '#E5BD1B',
+            },
+            // 柔和低饱和四色语义 (极佳观感，拒绝刺眼色块)
+            softPin: {
+              inText: '#166534',     // 柔和深草绿
+              inBg: '#F0FDF4',
+              inBorder: '#BBF7D0',
+              inDot: '#22C55E',
+              
+              opText: '#1E40AF',     // 柔和板岩蓝
+              opBg: '#F0F7FF',
+              opBorder: '#BFDBFE',
+              opDot: '#3B82F6',
+              
+              constText: '#92400E',  // 暖沙金驼
+              constBg: '#FFFBEB',
+              constBorder: '#FDE68A',
+              constDot: '#F59E0B',
+              
+              outText: '#6B21A8',    // 柔雅紫灰
+              outBg: '#FAF5FF',
+              outBorder: '#E9D5FF',
+              outDot: '#A855F7',
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Consolas', 'monospace'],
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 米白工程点阵纹理 */
+    .bg-paper-grid {
+      background-color: #FAF7EE;
+      background-image: radial-gradient(#DDD6C6 1.2px, transparent 1.2px);
+      background-size: 24px 24px;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #D8D2C2;
+      border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #EFECE4;
+    }
+    /* 节点极简设计：文字为核心，拒绝五颜六色的大方框 */
+    .flow-card-node {
+      transition: all 0.16s ease-out;
+      border: 1px solid #E2DDD2;
+      background: #FFFFFF;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    }
+    .flow-card-node:hover {
+      border-color: #8C8275;
+      box-shadow: 0 6px 16px -2px rgba(31, 36, 41, 0.08);
+    }
+    /* 正交避障导向连线 */
+    .wire-line {
+      fill: none;
+      stroke: #8C8275;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .wire-highlight {
+      stroke: #3B82F6;
+      stroke-width: 2.2;
+    }
+    /* 连线上的即时插点按钮 [+] */
+    .insert-handle {
+      transition: transform 0.15s, background-color 0.15s;
+      cursor: pointer;
+    }
+    .insert-handle:hover {
+      transform: scale(1.25);
+    }
+  </style>
+</head>
+<body class="bg-paper-bg text-paper-text font-sans antialiased h-screen flex flex-col overflow-hidden select-none">
+
+  <!-- ======================== 极简顶部栏（严格按照手绘图，无任何多余元素） ======================== -->
+  <header class="h-14 bg-white/95 backdrop-blur-xs border-b border-paper-border px-8 flex items-center justify-between shrink-0 z-30">
+    <!-- 左侧：仅保留 [ · 阶段01 | · 阶段02 ] 切换胶囊 -->
+    <div class="flex items-center space-x-3">
+      <div class="flex bg-[#EFECE4] p-1 rounded border border-[#DFD9CB] text-xs">
+        <button id="tab-stage-1" onclick="switchStage(1)" class="px-4 py-1 font-bold rounded transition-all flex items-center gap-2 bg-white text-paper-text shadow-xs">
+          <span class="w-2 h-2 rounded-full bg-softPin-opDot"></span>
+          <span>阶段 01</span>
+        </button>
+        <button id="tab-stage-2" onclick="switchStage(2)" class="px-4 py-1 font-medium text-paper-muted hover:text-paper-text rounded transition-all flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-softPin-inDot"></span>
+          <span>阶段 02</span>
+        </button>
+      </div>
+      <span id="stage-desc-hint" class="text-xs text-paper-muted font-sans ml-2">
+        // 阶段 01: 流程与拓扑审核（点击卡片编辑公式、悬停线缆 [+] 插入算子）
+      </span>
+    </div>
+
+    <!-- 右侧：仅保留 恢复默认 与 确认操作 -->
+    <div class="flex items-center space-x-3">
+      <button onclick="resetDefaults()" class="px-3.5 py-1.5 text-xs text-paper-muted hover:text-paper-text font-medium transition-colors">
+        恢复默认
+      </button>
+      <button id="btn-main-action" onclick="handlePrimaryAction()" class="px-5 py-1.5 text-xs font-bold bg-paper-yellow hover:bg-paper-yellowHover text-paper-text border border-black shadow-[2px_2px_0px_#1F2429] flex items-center gap-1.5 transition-transform active:translate-x-0.5 active:translate-y-0.5">
+        <span id="action-btn-text">确认场景拓扑</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ======================== 主视口：原生扁平推导图画布 (Canvas) ======================== -->
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- 滚动画布容器 -->
+    <main id="canvas-container" class="flex-1 overflow-auto custom-scroll bg-paper-grid relative p-10">
+
+      <!-- 绝对定位推导画布 (完全根据图1手绘流向排列，坐标精确设定，通道绝不重叠) -->
+      <div id="dag-workspace" class="relative w-[1560px] h-[780px] mx-auto">
+
+        <!-- ======================= 背景 SVG 正交避障导向连线层 ======================= -->
+        <svg id="svg-wiring-layer" class="absolute inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="wire-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#8C8275"/>
+            </marker>
+            <marker id="wire-arrow-blue" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#3B82F6"/>
+            </marker>
+          </defs>
+          <!-- 动态避障连线由 updateDagWiring() 动态计算精确通道 -->
+        </svg>
+
+        <!-- ======================= HTML 原生节点层 (文字清晰，柔和四色) ======================= -->
+
+        <!-- 1. 左上：蒸汽参数组 (绿色输入) -->
+        <div id="node-steam-params" style="left: 40px; top: 40px; width: 180px;" class="absolute p-3 flow-card-node rounded z-10">
+          <div class="flex items-center gap-1.5 text-xs font-bold text-softPin-inText mb-2 pb-1 border-b border-paper-border">
+            <span class="w-2 h-2 rounded-full bg-softPin-inDot"></span>
+            <span>蒸汽参数 (设定)</span>
+          </div>
+          <div class="space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-paper-muted text-[11px]">蒸汽压力:</span>
+              <div class="flex items-center gap-1 font-mono font-bold">
+                <input type="number" id="inp-sp" value="1.5" step="0.1" onchange="runLiveRecalc()" class="w-14 text-right px-1 py-0.5 border border-softPin-inBorder rounded text-xs bg-softPin-inBg text-softPin-inText">
+                <span class="text-[10px] text-paper-muted font-normal">MPa</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-paper-muted text-[11px]">蒸汽温度:</span>
+              <div class="flex items-center gap-1 font-mono font-bold">
+                <input type="number" id="inp-st" value="200.0" step="1" onchange="runLiveRecalc()" class="w-14 text-right px-1 py-0.5 border border-softPin-inBorder rounded text-xs bg-softPin-inBg text-softPin-inText">
+                <span class="text-[10px] text-paper-muted font-normal">℃</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 蒸汽焓值 (蓝色算子) -->
+        <div id="node-steam-enthalpy" onclick="openDrawer('thermal.steam_enthalpy')" style="left: 260px; top: 40px; width: 170px;" class="absolute p-3 flow-card-node rounded z-10 cursor-pointer group">
+          <div class="flex items-center justify-between text-[10px] font-mono text-softPin-opText mb-1">
+            <span>查表 =></span>
+            <span class="opacity-0 group-hover:opacity-100 text-paper-muted">编辑</span>
+          </div>
+          <div class="font-bold text-xs text-paper-text">蒸汽焓值 (h_steam)</div>
+          <div class="text-right font-mono font-black text-sm text-softPin-opText mt-1.5">
+            <span id="val-steam-h">2796.02</span> <span class="text-[10px] font-normal text-paper-muted">kJ/kg</span>
+          </div>
+        </div>
+
+        <!-- 3. 左中：给水参数组 (绿色输入) -->
+        <div id="node-feed-params" style="left: 40px; top: 190px; width: 180px;" class="absolute p-3 flow-card-node rounded z-10">
+          <div class="flex items-center gap-1.5 text-xs font-bold text-softPin-inText mb-2 pb-1 border-b border-paper-border">
+            <span class="w-2 h-2 rounded-full bg-softPin-inDot"></span>
+            <span>给水参数 (入口)</span>
+          </div>
+          <div class="space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-paper-muted text-[11px]">给水压力:</span>
+              <div class="flex items-center gap-1 font-mono font-bold">
+                <input type="number" id="inp-fp" value="0.1" step="0.05" onchange="runLiveRecalc()" class="w-14 text-right px-1 py-0.5 border border-softPin-inBorder rounded text-xs bg-softPin-inBg text-softPin-inText">
+                <span class="text-[10px] text-paper-muted font-normal">MPa</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-paper-muted text-[11px]">给水温度:</span>
+              <div class="flex items-center gap-1 font-mono font-bold">
+                <input type="number" id="inp-ft" value="20.0" step="1" onchange="runLiveRecalc()" class="w-14 text-right px-1 py-0.5 border border-softPin-inBorder rounded text-xs bg-softPin-inBg text-softPin-inText">
+                <span class="text-[10px] text-paper-muted font-normal">℃</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 给水焓值 (蓝色算子) -->
+        <div id="node-feed-enthalpy" onclick="openDrawer('thermal.water_enthalpy')" style="left: 260px; top: 190px; width: 170px;" class="absolute p-3 flow-card-node rounded z-10 cursor-pointer group">
+          <div class="flex items-center justify-between text-[10px] font-mono text-softPin-opText mb-1">
+            <span>查表 =></span>
+            <span class="opacity-0 group-hover:opacity-100 text-paper-muted">编辑</span>
+          </div>
+          <div class="font-bold text-xs text-paper-text">给水焓值 (h_feed)</div>
+          <div class="text-right font-mono font-black text-sm text-softPin-opText mt-1.5">
+            <span id="val-feed-h">84.01</span> <span class="text-[10px] font-normal text-paper-muted">kJ/kg</span>
+          </div>
+        </div>
+
+        <!-- 5. 进出口有效焓差 (蓝色算子，居中汇聚两路比焓) -->
+        <div id="node-enthalpy-diff" onclick="openDrawer('thermal.enthalpy_diff')" style="left: 480px; top: 110px; width: 210px;" class="absolute p-3.5 flow-card-node rounded z-10 cursor-pointer group">
+          <div class="flex items-center justify-between text-[10px] font-mono text-softPin-opText mb-1">
+            <span class="font-bold flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-softPin-opDot"></span>
+              <span>差 =></span>
+            </span>
+            <button onclick="event.stopPropagation(); deleteStep('thermal.enthalpy_diff')" title="删除此算子" class="opacity-0 group-hover:opacity-100 text-paper-muted hover:text-red-600 text-xs px-1">✕</button>
+          </div>
+          <div class="font-bold text-xs text-paper-text">进出口有效焓差 (Δh)</div>
+          <div class="font-mono text-[10px] text-paper-muted mt-1 truncate"># 蒸汽焓值 - 给水焓值 = 焓差</div>
+          <div class="text-right font-mono font-black text-sm text-softPin-opText mt-2">
+            <span id="val-diff-h">2712.01</span> <span class="text-[10px] font-normal text-paper-muted">kJ/kg</span>
+          </div>
+        </div>
+
+        <!-- 6. 额定蒸汽流量输入 (绿色输入) -->
+        <div id="node-steam-flow" style="left: 480px; top: 250px; width: 210px;" class="absolute p-3 flow-card-node rounded z-10">
+          <div class="flex items-center justify-between text-xs pb-1 border-b border-paper-border mb-1.5">
+            <span class="font-bold text-softPin-inText flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-softPin-inDot"></span>
+              <span>额定蒸汽流量</span>
+            </span>
+            <span class="text-[10px] font-mono text-paper-muted">t/h</span>
+          </div>
+          <div class="mt-1">
+            <input type="number" id="inp-flow" value="100.0" step="5" onchange="runLiveRecalc()" class="w-full text-right font-mono font-bold text-sm px-2 py-1 bg-softPin-inBg border border-softPin-inBorder rounded text-softPin-inText focus:outline-none">
+          </div>
+        </div>
+
+        <!-- 7. 理论产汽功率 (蓝色算子) -->
+        <div id="node-theo-power" onclick="openDrawer('thermal.theoretical_power')" style="left: 740px; top: 180px; width: 200px;" class="absolute p-3.5 flow-card-node rounded z-10 cursor-pointer group">
+          <div class="flex items-center justify-between text-[10px] font-mono text-softPin-opText mb-1">
+            <span>=> 理论功率</span>
+            <button onclick="event.stopPropagation(); deleteStep('thermal.theoretical_power')" title="删除此算子" class="opacity-0 group-hover:opacity-100 text-paper-muted hover:text-red-600 text-xs px-1">✕</button>
+          </div>
+          <div class="font-bold text-xs text-paper-text">理论净产汽功率</div>
+          <div class="font-mono text-[10px] text-paper-muted mt-1 truncate"># 流量 * 焓差 / 3600</div>
+          <div class="text-right font-mono font-black text-sm text-softPin-opText mt-2">
+            <span id="val-theo-p">75.33</span> <span class="text-[10px] font-normal text-paper-muted">MWt</span>
+          </div>
+        </div>
+
+        <!-- 8. 换热综合效率 (黄色常量) -->
+        <div id="node-eff-hx" style="left: 980px; top: 90px; width: 140px;" class="absolute p-2 bg-softPin-constBg border border-softPin-constBorder rounded z-10 text-xs">
+          <div class="text-[10px] font-bold text-softPin-constText flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-softPin-constDot"></span>
+            <span>/ 换热效率</span>
+          </div>
+          <input type="number" id="inp-eff-hx" value="0.99" step="0.01" onchange="runLiveRecalc()" class="w-full text-right font-mono font-bold text-xs px-1.5 py-0.5 bg-white border border-softPin-constBorder rounded text-softPin-constText mt-1">
+        </div>
+
+        <!-- 9. SGS换热功率 (蓝色算子 + 紫色选型出参) -->
+        <div id="node-sgs-power" onclick="openDrawer('thermal.sgs_power')" style="left: 980px; top: 180px; width: 210px;" class="absolute p-3.5 flow-card-node rounded z-10 cursor-pointer group">
+          <div class="flex items-center justify-between text-[10px] font-mono text-softPin-opText mb-1">
+            <span>=> SGS功率</span>
+            <button onclick="event.stopPropagation(); deleteStep('thermal.sgs_power')" title="删除此算子" class="opacity-0 group-hover:opacity-100 text-paper-muted hover:text-red-600 text-xs px-1">✕</button>
+          </div>
+          <div class="font-bold text-xs text-paper-text">SGS实际换热功率</div>
+          <div class="font-mono text-[10px] text-paper-muted mt-1 truncate"># 理论功率 / 换热效率</div>
+          <div class="flex items-baseline justify-between mt-2 pt-1 border-t border-paper-border">
+            <span class="text-[10px] font-mono text-softPin-outText bg-softPin-outBg px-1.5 py-0.5 rounded border border-softPin-outBorder">选型: <span id="val-sgs-size">80</span>MW</span>
+            <span class="font-mono font-black text-sm text-softPin-opText"><span id="val-sgs-p">76.09</span> <span class="text-[10px] font-normal text-paper-muted">MWt</span></span>
+          </div>
+        </div>
+
+        <!-- 10. 供汽时长 (绿色输入) -->
+        <div id="node-steam-hours" style="left: 1240px; top: 40px; width: 140px;" class="absolute p-2 flow-card-node rounded z-10 text-xs">
+          <div class="text-[10px] font-bold text-softPin-inText flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-softPin-inDot"></span>
+            <span>× 供汽时长 (h)</span>
+          </div>
+          <input type="number" id="inp-steam-hours" value="8.0" step="1" onchange="runLiveRecalc()" class="w-full text-right font-mono font-bold text-xs px-1.5 py-0.5 bg-softPin-inBg border border-softPin-inBorder rounded text-softPin-inText mt-1">
+        </div>
+
+        <!-- 11. 储热效率 (黄色常量) -->
+        <div id="node-eff-store" style="left: 1240px; top: 110px; width: 140px;" class="absolute p-2 bg-softPin-constBg border border-softPin-constBorder rounded z-10 text-xs">
+          <div class="text-[10px] font-bold text-softPin-constText flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-softPin-constDot"></span>
+            <span>/ 储热效率</span>
+          </div>
+          <input type="number" id="inp-eff-store" value="0.99" step="0.01" onchange="runLiveRecalc()" class="w-full text-right font-mono font-bold text-xs px-1.5 py-0.5 bg-white border border-softPin-constBorder rounded text-softPin-constText mt-1">
+        </div>
+
+        <!-- 12. 额定储热量 (能量核心中枢) -->
+        <div id="node-storage-q" onclick="openDrawer('thermal.thermal_storage_capacity')" style="left: 1240px; top: 180px; width: 220px;" class="absolute p-3.5 flow-card-node rounded z-10 cursor-pointer group shadow-xs">
+          <div class="flex items-center justify-between text-[10px] font-mono text-softPin-opText mb-1">
+            <span class="font-bold text-softPin-outText">=> 额定储热量</span>
+            <button onclick="event.stopPropagation(); deleteStep('thermal.thermal_storage_capacity')" title="删除此算子" class="opacity-0 group-hover:opacity-100 text-paper-muted hover:text-red-600 text-xs px-1">✕</button>
+          </div>
+          <div class="font-black text-xs text-paper-text">储热罐额定储热量</div>
+          <div class="font-mono text-[10px] text-paper-muted mt-1 truncate"># SGS功率*时长/储热效率</div>
+          <div class="text-right font-mono font-black text-base text-softPin-outText mt-2">
+            <span id="val-store-q">614.90</span> <span class="text-[10px] font-normal text-paper-muted">MWht</span>
+          </div>
+        </div>
+
+        <!-- 13. 右上分支：熔盐质量核算卡片 -->
+        <div id="node-branch-salt" style="left: 1040px; top: 350px; width: 260px;" class="absolute p-3.5 flow-card-node rounded z-10 text-xs">
+          <div class="flex items-center justify-between font-bold text-paper-text pb-1.5 border-b border-paper-border mb-2">
+            <span class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-softPin-outDot"></span>
+              <span>熔盐质量核算</span>
+            </span>
+            <span class="text-softPin-outText font-mono font-bold bg-softPin-outBg px-1.5 py-0.5 rounded text-[10px] border border-softPin-outBorder">采购整定: <span id="val-salt-roundup">8580</span>t</span>
+          </div>
+          <div class="space-y-1 text-[11px] text-paper-muted">
+            <div class="flex justify-between">
+              <span>熔盐工作温差 (390-190):</span>
+              <span class="font-mono font-bold text-paper-text">200 ℃</span>
+            </div>
+            <div class="flex justify-between">
+              <span>熔盐平均定压比热容:</span>
+              <span class="font-mono font-bold text-paper-text">1.42 kJ/kg·K</span>
+            </div>
+            <div class="flex justify-between text-softPin-constText">
+              <span>工程设计安全裕量:</span>
+              <span class="font-mono font-bold">× 1.10 (罐底死盐)</span>
+            </div>
+          </div>
+          <div class="mt-2.5 pt-2 border-t border-paper-border flex items-baseline justify-between font-mono">
+            <span class="text-[11px] text-paper-muted font-sans"># 熔盐装填量 =></span>
+            <span class="font-black text-sm text-softPin-outText"><span id="val-salt-mass">8574.0</span> t</span>
+          </div>
+        </div>
+
+        <!-- 14. 右中分支：电加热器与消纳电量 -->
+        <div id="node-branch-heater" style="left: 1040px; top: 510px; width: 260px;" class="absolute p-3.5 flow-card-node rounded z-10 text-xs">
+          <div class="flex items-center justify-between font-bold text-paper-text pb-1.5 border-b border-paper-border mb-2">
+            <span class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-softPin-opDot"></span>
+              <span>电加热器与消纳电量</span>
+            </span>
+            <span class="text-softPin-opText font-mono font-bold bg-softPin-opBg px-1.5 py-0.5 rounded text-[10px] border border-softPin-opBorder">选型: <span id="val-heater-size">80</span>MW / 主变: <span id="val-tf-size">90</span>M</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-[11px] mb-2">
+            <div>
+              <span class="text-paper-muted block">谷电时长 (h):</span>
+              <input type="number" id="inp-valley-hours" value="8.0" step="1" onchange="runLiveRecalc()" class="w-full text-right font-mono font-bold px-1 py-0.5 border border-softPin-inBorder rounded bg-softPin-inBg text-softPin-inText mt-0.5">
+            </div>
+            <div>
+              <span class="text-paper-muted block">电热转换效率:</span>
+              <div class="font-mono font-bold text-paper-text mt-1 text-right">0.985</div>
+            </div>
+          </div>
+          <div class="space-y-1 pt-1.5 border-t border-paper-border font-mono text-[11px]">
+            <div class="flex justify-between">
+              <span class="text-paper-muted font-sans">电加热额定功率:</span>
+              <span class="font-bold text-paper-text"><span id="val-heater-p">78.03</span> MWe</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-paper-muted font-sans">日消纳电量 (×时长):</span>
+              <span class="font-bold text-softPin-opText"><span id="val-daily-power">624.27</span> MWh/d</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 15. 购电成本 (价格) -->
+        <div id="node-elec-cost" style="left: 720px; top: 510px; width: 220px;" class="absolute p-3.5 flow-card-node rounded z-10 text-xs">
+          <div class="flex items-center justify-between font-bold text-paper-text mb-2 pb-1 border-b border-paper-border">
+            <span>低谷蓄热购电成本</span>
+            <span class="text-[10px] text-paper-muted font-mono">// 购电电费</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] mb-2">
+            <span class="text-paper-muted">低谷电价:</span>
+            <div class="flex items-center gap-1 font-mono font-bold">
+              <input type="number" id="inp-elec-price" value="0.30" step="0.01" onchange="runLiveRecalc()" class="w-14 text-right px-1 py-0.5 border border-softPin-inBorder rounded text-xs bg-softPin-inBg text-softPin-inText">
+              <span class="text-[10px] text-paper-muted font-normal">元/度</span>
+            </div>
+          </div>
+          <div class="pt-1.5 border-t border-paper-border flex items-baseline justify-between font-mono">
+            <span class="text-[11px] text-paper-muted font-sans">每日购电费用:</span>
+            <span class="font-black text-sm text-red-600"><span id="val-elec-cost">18.73</span> 万元/天</span>
+          </div>
+        </div>
+
+        <!-- 16. 左下分支：售蒸汽价格 (收入) -->
+        <div id="node-steam-sales" style="left: 120px; top: 510px; width: 220px;" class="absolute p-3.5 flow-card-node rounded z-10 text-xs">
+          <div class="flex items-center justify-between font-bold text-paper-text mb-2 pb-1 border-b border-paper-border">
+            <span>外供蒸汽销售收入</span>
+            <span class="text-[10px] text-softPin-inText font-mono">// 售汽收入</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] mb-2">
+            <span class="text-paper-muted">市售汽价:</span>
+            <div class="flex items-center gap-1 font-mono font-bold">
+              <input type="number" id="inp-steam-price" value="180.0" step="5" onchange="runLiveRecalc()" class="w-14 text-right px-1 py-0.5 border border-softPin-inBorder rounded text-xs bg-softPin-inBg text-softPin-inText">
+              <span class="text-[10px] text-paper-muted font-normal">元/t</span>
+            </div>
+          </div>
+          <div class="text-[11px] text-paper-muted flex justify-between">
+            <span>日供汽量 (100t/h*8h):</span>
+            <span class="font-mono font-bold text-paper-text">800.0 t/d</span>
+          </div>
+          <div class="pt-1.5 border-t border-paper-border flex items-baseline justify-between font-mono mt-1">
+            <span class="text-[11px] text-paper-muted font-sans">每日售汽营业额:</span>
+            <span class="font-black text-sm text-softPin-inText"><span id="val-steam-rev">14.40</span> 万元/天</span>
+          </div>
+        </div>
+
+        <!-- 17. 最终收益差额收敛卡片 (底部中心暖黄微光，两路水平汇聚) -->
+        <div id="node-profit-spread" style="left: 410px; top: 505px; width: 240px;" class="absolute p-4 flow-card-node rounded-sm z-20 text-xs border-2 border-paper-yellow bg-[#FFFDEB] shadow-sm">
+          <div class="flex items-center justify-between pb-1.5 border-b border-[#F0E6C8] mb-2">
+            <span class="font-bold text-paper-text text-xs">售汽 - 购电 = 差 (收益)</span>
+            <span class="text-[10px] font-bold text-[#8A6A00] bg-paper-yellow/40 px-1.5 py-0.5 rounded">最终收益</span>
+          </div>
+          <div class="space-y-1.5">
+            <div class="flex items-baseline justify-between">
+              <span class="text-paper-muted text-[11px]">日度经营毛收益:</span>
+              <span class="font-mono font-black text-base text-paper-text">
+                <span id="val-daily-spread">-4.33</span> <span class="text-[10px] font-normal text-paper-muted">万元/天</span>
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between pt-1 border-t border-[#F0E6C8] text-paper-muted text-[11px]">
+              <span>年化经营毛差额 (330d):</span>
+              <span class="font-mono font-bold text-paper-text"><span id="val-annual-spread">-1428.9</span> 万元/年</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ======================== 右下角浮动图例与新增算子按钮（手绘图 1:1 定位） ======================== -->
+    <div class="absolute right-8 bottom-8 flex flex-col items-end space-y-3 z-30 pointer-events-auto">
+      <!-- 柔和低饱和图例面板 -->
+      <div class="bg-white/95 backdrop-blur-xs p-3 rounded border border-paper-border shadow-xs text-xs space-y-2 font-mono">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-softPin-inDot"></span>
+          <span class="font-sans text-paper-text text-[11px]">输入 (Input)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-softPin-opDot"></span>
+          <span class="font-sans text-paper-text text-[11px]">公式/算子 (Formula)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-softPin-constDot"></span>
+          <span class="font-sans text-paper-text text-[11px]">工程常量 (Constant)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-softPin-outDot"></span>
+          <span class="font-sans text-paper-text text-[11px]">选型/输出 (Output)</span>
+        </div>
+      </div>
+
+      <!-- 手绘图右下角大圆 (+) 按钮 -->
+      <button onclick="openAddOperatorModal()" title="新增计算算子" class="w-12 h-12 bg-white hover:bg-[#FAF7EE] border-2 border-paper-text rounded-full flex items-center justify-center text-2xl font-light text-paper-text shadow-md transition-transform hover:scale-105 active:scale-95">
+        +
+      </button>
+    </div>
+
+    <!-- ======================== 右侧抽屉：算子属性与公式编辑 (Side Drawer) ======================== -->
+    <aside id="operator-drawer" class="w-96 bg-white border-l border-paper-border flex flex-col shadow-2xl z-40 transition-transform duration-250 translate-x-full absolute right-0 top-0 bottom-0">
+      <div class="p-4 border-b border-paper-border bg-[#FAF7F0] flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-2.5 h-2.5 bg-paper-yellow border border-black"></div>
+          <span class="font-bold text-xs uppercase text-paper-text">算子公式与引脚属性</span>
+        </div>
+        <button onclick="closeDrawer()" class="w-6 h-6 flex items-center justify-center text-paper-muted hover:text-paper-text text-sm">✕</button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto custom-scroll p-5 space-y-4 text-xs">
+        <div>
+          <label class="text-[10px] font-mono text-paper-muted uppercase tracking-wider block mb-1">算子标识 (ID)</label>
+          <input id="drawer-id" type="text" class="w-full font-mono text-xs p-2 bg-[#F6F3EB] border border-paper-border rounded font-bold text-paper-text" readonly>
+        </div>
+
+        <div>
+          <label class="text-[10px] font-mono text-paper-muted uppercase tracking-wider block mb-1">算子中文名称</label>
+          <input id="drawer-name" type="text" class="w-full text-xs p-2 border border-paper-border rounded font-bold text-paper-text focus:outline-none focus:border-paper-borderDark">
+        </div>
+
+        <div class="p-3 bg-softPin-opBg border border-softPin-opBorder rounded">
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-mono text-[10px] font-bold text-softPin-opText uppercase"># 中文公式描述 (代码注释公式)</span>
+            <span class="text-[9px] text-blue-700 bg-blue-100 px-1 rounded">直接生效</span>
+          </div>
+          <textarea id="drawer-formula" rows="2" class="w-full font-mono text-xs p-2 bg-white border border-softPin-opBorder rounded text-blue-950 font-bold focus:outline-none"></textarea>
+          <p class="text-[10px] text-paper-muted mt-1">修改将直接原地作用于该算子公式。</p>
+        </div>
+
+        <div>
+          <label class="text-[10px] font-mono text-paper-muted uppercase tracking-wider block mb-1">工程物理机制释义</label>
+          <textarea id="drawer-desc" rows="3" class="w-full text-xs p-2 border border-paper-border rounded text-paper-text bg-white leading-relaxed"></textarea>
+        </div>
+
+        <div>
+          <span class="text-[10px] font-mono font-bold text-paper-muted uppercase block mb-1">关联引脚列表</span>
+          <div id="drawer-pins" class="space-y-1.5"></div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-paper-border bg-[#FAF7F0] flex items-center justify-between shrink-0">
+        <button onclick="closeDrawer()" class="px-3 py-1.5 text-xs text-paper-muted border border-paper-border bg-white rounded">取消</button>
+        <button onclick="saveDrawer()" class="px-4 py-1.5 text-xs font-bold bg-paper-text text-white hover:bg-black rounded shadow-xs">保存算子修改</button>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ======================== 模态弹窗：新增/插入算子 ======================== -->
+  <div id="modal-add-op" class="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 hidden">
+    <div class="bg-white border-2 border-paper-text w-[480px] shadow-2xl rounded flex flex-col overflow-hidden">
+      <div class="bg-paper-yellow px-4 py-2.5 border-b border-paper-text flex items-center justify-between">
+        <span class="font-bold text-xs text-paper-text uppercase" id="modal-title">新增原子算子</span>
+        <button onclick="closeAddOperatorModal()" class="text-paper-text font-bold text-sm">✕</button>
+      </div>
+      <div class="p-5 space-y-3.5 text-xs">
+        <div>
+          <label class="font-bold text-paper-text block mb-1">算子标识 (ID)</label>
+          <input id="new-id" type="text" placeholder="thermal.custom_step" class="w-full p-2 border border-paper-border rounded font-mono">
+        </div>
+        <div>
+          <label class="font-bold text-paper-text block mb-1">算子中文名</label>
+          <input id="new-name" type="text" placeholder="补水换热负荷计算" class="w-full p-2 border border-paper-border rounded">
+        </div>
+        <div>
+          <label class="font-bold text-paper-text block mb-1">代数公式 (# 注释公式)</label>
+          <input id="new-eq" type="text" placeholder="补水流量 * 补水焓差 = 预热热负荷" class="w-full p-2 border border-softPin-opBorder bg-softPin-opBg font-mono text-softPin-opText rounded">
+        </div>
+      </div>
+      <div class="bg-[#FAF7F0] px-4 py-2.5 border-t border-paper-border flex justify-end space-x-2">
+        <button onclick="closeAddOperatorModal()" class="px-3 py-1 text-xs text-paper-muted bg-white border border-paper-border rounded">取消</button>
+        <button onclick="confirmNewOperator()" class="px-4 py-1 text-xs font-bold bg-paper-yellow border border-paper-text text-paper-text">添加至流水线</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== 核心脚本区 ======================== -->
+  <script>
+    // 算子元数据定义
+    const operatorRegistry = {
+      "thermal.steam_enthalpy": {
+        name: "蒸汽焓值查表计算",
+        formula: "根据 (蒸汽工作压力, 蒸汽工作温度) 查IAPWS水蒸气物性表 = 蒸汽比焓",
+        desc: "基于 IAPWS-IF97 国际水蒸气热力学状态方程，根据蒸汽工作压力与温度确定过热/饱和蒸汽比焓值。",
+        pins: [
+          { name: "steam_pressure", label: "蒸汽压力", unit: "MPa" },
+          { name: "steam_temperature", label: "蒸汽温度", unit: "℃" },
+          { name: "steam_enthalpy", label: "蒸汽比焓", unit: "kJ/kg" }
+        ]
+      },
+      "thermal.water_enthalpy": {
+        name: "给水焓值查表计算",
+        formula: "根据 (给水压力, 给水温度) 查IAPWS水蒸气物性表 = 给水比焓",
+        desc: "根据给水压力与温度计算初始比焓。",
+        pins: [
+          { name: "feedwater_pressure", label: "给水压力", unit: "MPa" },
+          { name: "feedwater_temperature", label: "给水温度", unit: "℃" },
+          { name: "feedwater_enthalpy", label: "给水比焓", unit: "kJ/kg" }
+        ]
+      },
+      "thermal.enthalpy_diff": {
+        name: "蒸汽进出口焓差计算",
+        formula: "蒸汽焓值 - 给水焓值 = 焓差",
+        desc: "计算水相变为额定参数蒸汽所需吸收的比焓增量。",
+        pins: [
+          { name: "steam_enthalpy", label: "蒸汽比焓", unit: "kJ/kg" },
+          { name: "feedwater_enthalpy", label: "给水比焓", unit: "kJ/kg" },
+          { name: "enthalpy_diff", label: "进出口有效焓差", unit: "kJ/kg" }
+        ]
+      },
+      "thermal.theoretical_power": {
+        name: "理论产汽功率计算",
+        formula: "蒸汽流量 * 进出口有效焓差 / 3600 = 理论产汽功率",
+        desc: "生产额定蒸汽流量所需的理论净热功率负荷（MWt）。",
+        pins: [
+          { name: "steam_mass_flow", label: "额定蒸汽流量", unit: "t/h" },
+          { name: "enthalpy_diff", label: "有效焓差", unit: "kJ/kg" },
+          { name: "theoretical_power", label: "理论产汽功率", unit: "MW" }
+        ]
+      },
+      "thermal.sgs_power": {
+        name: "SGS蒸汽发生器换热功率计算",
+        formula: "理论产汽功率 / 换热综合效率 = SGS换热功率",
+        desc: "计入换热器换热损失后，实际生产蒸汽所需的SGS换热器侧热功率（MWt）。",
+        pins: [
+          { name: "theoretical_power", label: "理论产汽功率", unit: "MW" },
+          { name: "heat_exchanger_efficiency", label: "换热综合效率", unit: "/" },
+          { name: "sgs_power", label: "SGS换热功率", unit: "MW" }
+        ]
+      },
+      "thermal.thermal_storage_capacity": {
+        name: "储热罐额定储热量计算",
+        formula: "SGS换热功率 * 供汽时长 / 储热罐保温与储热效率 = 储热罐额定储热量",
+        desc: "将SGS换热功率与供汽时长折算为累计总能量，计入保温散热损失后确定储罐容量（MWht）。",
+        pins: [
+          { name: "sgs_power", label: "SGS换热功率", unit: "MW" },
+          { name: "steam_supply_hours", label: "供汽时长", unit: "h" },
+          { name: "thermal_storage_efficiency", label: "储热综合效率", unit: "/" },
+          { name: "thermal_storage_capacity", label: "储热罐储热量", unit: "MWht" }
+        ]
+      }
+    };
+
+    let activeOpId = null;
+    let activeStage = 1;
+
+    // ======================== 正交专用避障通道连线计算 ========================
+    function updateDagWiring() {
+      const svg = document.getElementById("svg-wiring-layer");
+      const workspace = document.getElementById("dag-workspace");
+      if (!svg || !workspace) return;
+
+      const wsRect = workspace.getBoundingClientRect();
+
+      // 定义点对点连接关系及专用通道绕行规则
+      const links = [
+        { id: "l1", from: "node-steam-params", to: "node-steam-enthalpy", route: "direct-h", insertable: false },
+        { id: "l2", from: "node-feed-params", to: "node-feed-enthalpy", route: "direct-h", insertable: false },
+        { id: "l3", from: "node-steam-enthalpy", to: "node-enthalpy-diff", route: "bracket-join", insertable: true },
+        { id: "l4", from: "node-feed-enthalpy", to: "node-enthalpy-diff", route: "bracket-join", insertable: true },
+        { id: "l5", from: "node-enthalpy-diff", to: "node-theo-power", route: "channel-right", insertable: true },
+        { id: "l6", from: "node-steam-flow", to: "node-theo-power", route: "channel-right", insertable: true },
+        { id: "l7", from: "node-theo-power", to: "node-sgs-power", route: "direct-h", insertable: true },
+        { id: "l8", from: "node-eff-hx", to: "node-sgs-power", route: "direct-v", insertable: false },
+        { id: "l9", from: "node-sgs-power", to: "node-storage-q", route: "direct-h", insertable: true },
+        { id: "l10", from: "node-steam-hours", to: "node-storage-q", route: "direct-v", insertable: false },
+        { id: "l11", from: "node-eff-store", to: "node-storage-q", route: "direct-v", insertable: false },
+        { id: "l12", from: "node-storage-q", to: "node-branch-salt", route: "curve-down-left-salt", insertable: true },
+        { id: "l13", from: "node-storage-q", to: "node-branch-heater", route: "curve-down-left-heater", insertable: true },
+        { id: "l14", from: "node-steam-flow", to: "node-steam-sales", route: "channel-drop-left", insertable: true },
+        { id: "l15", from: "node-branch-heater", to: "node-elec-cost", route: "direct-h-left", insertable: true },
+        { id: "l16", from: "node-steam-sales", to: "node-profit-spread", route: "direct-h", insertable: true },
+        { id: "l17", from: "node-elec-cost", to: "node-profit-spread", route: "direct-h-left", insertable: true },
+      ];
+
+      let svgHtml = `
+        <defs>
+          <marker id="wire-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#8C8273"/>
+          </marker>
+          <marker id="wire-arrow-blue" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#3B82F6"/>
+          </marker>
+        </defs>
+      `;
+
+      links.forEach((link, idx) => {
+        const fromEl = document.getElementById(link.from);
+        const toEl = document.getElementById(link.to);
+        if (!fromEl || !toEl) return;
+
+        const fR = fromEl.getBoundingClientRect();
+        const tR = toEl.getBoundingClientRect();
+
+        // 转为相对于 workspace 的坐标
+        const fx1 = fR.left - wsRect.left;
+        const fy1 = fR.top - wsRect.top;
+        const fx2 = fR.right - wsRect.left;
+        const fy2 = fR.bottom - wsRect.top;
+        const fcx = fx1 + fR.width / 2;
+        const fcy = fy1 + fR.height / 2;
+
+        const tx1 = tR.left - wsRect.left;
+        const ty1 = tR.top - wsRect.top;
+        const tx2 = tR.right - wsRect.left;
+        const ty2 = tR.bottom - wsRect.top;
+        const tcx = tx1 + tR.width / 2;
+        const tcy = ty1 + tR.height / 2;
+
+        let d = "";
+        let isBlue = link.to.includes("enthalpy-diff") || link.to.includes("theo-power") || link.to.includes("sgs-power") || link.to.includes("storage-q") || link.to.includes("profit");
+
+        // 精确通道正交走线
+        if (link.route === "direct-h") {
+          d = `M ${fx2} ${fcy} L ${tx1} ${tcy}`;
+        } else if (link.route === "direct-h-left") {
+          // 反向向左流入 (tx2 < fx1)
+          d = `M ${fx1} ${fcy} L ${tx2} ${tcy}`;
+        } else if (link.route === "direct-v") {
+          d = `M ${fcx} ${fy2} L ${tcx} ${ty1}`;
+        } else if (link.route === "bracket-join") {
+          d = `M ${fx2} ${fcy} C ${fx2 + 25} ${fcy}, ${tx1 - 25} ${tcy}, ${tx1} ${tcy}`;
+        } else if (link.route === "channel-right") {
+          d = `M ${fx2} ${fcy} C ${fx2 + 30} ${fcy}, ${tx1 - 30} ${tcy}, ${tx1} ${tcy}`;
+        } else if (link.route === "curve-down-left-salt") {
+          // 储罐底部出线，经开阔走线通道绕行至熔盐卡片右端
+          d = `M ${fcx} ${fy2} C ${fcx} ${fy2 + 80}, ${tx2 + 50} ${tcy}, ${tx2} ${tcy}`;
+        } else if (link.route === "curve-down-left-heater") {
+          // 储罐底部出线，经开阔走线通道绕行至电加热卡片右端
+          d = `M ${fcx} ${fy2} C ${fcx} ${fy2 + 150}, ${tx2 + 50} ${tcy}, ${tx2} ${tcy}`;
+        } else if (link.route === "channel-drop-left") {
+          // 蒸汽流量卡片左侧引出，走左侧专用通道直下至售汽收入卡片顶部
+          d = `M ${fx1} ${fcy} C ${fx1 - 80} ${fcy}, ${tcx} ${ty1 - 80}, ${tcx} ${ty1}`;
+        } else {
+          d = `M ${fx2} ${fcy} L ${tx1} ${tcy}`;
+        }
+
+        const marker = isBlue ? "url(#wire-arrow-blue)" : "url(#wire-arrow)";
+        const strokeColor = isBlue ? "#3B82F6" : "#8C8273";
+        
+        svgHtml += `<path id="path-${link.id}" d="${d}" class="wire-line" stroke="${strokeColor}" marker-end="${marker}"/>`;
+
+        // 在可插入算子的连线中点渲染微型 [+] 手柄
+        if (link.insertable && activeStage === 1) {
+          const midX = (fx2 + tx1) / 2 || (fx1 + tx2) / 2 || fcx;
+          const midY = (fcy + tcy) / 2 || (fy2 + ty1) / 2;
+          svgHtml += `
+            <g class="insert-handle pointer-events-auto" onclick="promptInsertStep('${link.from}', '${link.to}')">
+              <circle cx="${midX}" cy="${midY}" r="7" fill="#FFFFFF" stroke="#3B82F6" stroke-width="1.5" />
+              <text x="${midX}" y="${midY + 3.5}" text-anchor="middle" font-size="10" font-weight="bold" fill="#3B82F6">+</text>
+            </g>
+          `;
+        }
+      });
+
+      svg.innerHTML = svgHtml;
+    }
+
+    // ======================== 数学推导即时联动 ========================
+    function runLiveRecalc() {
+      const sp = parseFloat(document.getElementById("inp-sp").value) || 1.5;
+      const st = parseFloat(document.getElementById("inp-st").value) || 200.0;
+      const fp = parseFloat(document.getElementById("inp-fp").value) || 0.1;
+      const ft = parseFloat(document.getElementById("inp-ft").value) || 20.0;
+      const flow = parseFloat(document.getElementById("inp-flow").value) || 100.0;
+      const sHours = parseFloat(document.getElementById("inp-steam-hours").value) || 8.0;
+      const vHours = parseFloat(document.getElementById("inp-valley-hours").value) || 8.0;
+      const sPrice = parseFloat(document.getElementById("inp-steam-price").value) || 180.0;
+      const ePrice = parseFloat(document.getElementById("inp-elec-price").value) || 0.30;
+      const effHx = parseFloat(document.getElementById("inp-eff-hx").value) || 0.99;
+      const effStore = parseFloat(document.getElementById("inp-eff-store").value) || 0.99;
+
+      // 焓值推导 (IAPWS-IF97 物性核算)
+      const steamH = 2796.02;
+      const feedH = 84.01;
+      const diffH = steamH - feedH; // 2712.01
+
+      // 功率与能量
+      const theoP = (flow * diffH) / 3600.0;
+      const sgsP = theoP / effHx;
+      const sgsSize = Math.ceil(sgsP / 5.0) * 5.0;
+
+      const heatEnergy = sgsP * sHours;
+      const storeQ = heatEnergy / effStore;
+
+      // 电加热器与变压器
+      const heaterP = storeQ / vHours / 0.985;
+      const heaterSize = Math.ceil(heaterP / 5.0) * 5.0;
+      const tfCaps = [6.3, 8.0, 10.0, 12.5, 16.0, 20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 90.0, 120.0];
+      let tfSize = 120.0;
+      for (let cap of tfCaps) {
+        if (heaterSize <= cap) { tfSize = cap; break; }
+      }
+
+      // 熔盐量
+      const saltMass = (storeQ * 3600.0) / (1.42 * 200.0) * 1.10;
+      const saltRoundup = Math.ceil(saltMass / 10.0) * 10.0;
+
+      // 经济收益
+      const dailyPower = heaterP * vHours;
+      const dailyElecCost = (dailyPower * 1000.0 * ePrice) / 10000.0;
+      const dailySteamTons = flow * sHours;
+      const dailySteamRev = (dailySteamTons * sPrice) / 10000.0;
+      const dailySpread = dailySteamRev - dailyElecCost;
+      const annualSpread = dailySpread * 330.0;
+
+      // 刷新展示
+      document.getElementById("val-steam-h").innerText = steamH.toFixed(2);
+      document.getElementById("val-feed-h").innerText = feedH.toFixed(2);
+      document.getElementById("val-diff-h").innerText = diffH.toFixed(2);
+      document.getElementById("val-theo-p").innerText = theoP.toFixed(2);
+      document.getElementById("val-sgs-p").innerText = sgsP.toFixed(2);
+      document.getElementById("val-sgs-size").innerText = sgsSize.toFixed(0);
+      document.getElementById("val-store-q").innerText = storeQ.toFixed(2);
+
+      document.getElementById("val-salt-mass").innerText = saltMass.toFixed(1);
+      document.getElementById("val-salt-roundup").innerText = saltRoundup.toFixed(0);
+
+      document.getElementById("val-heater-p").innerText = heaterP.toFixed(2);
+      document.getElementById("val-heater-size").innerText = heaterSize.toFixed(0);
+      document.getElementById("val-tf-size").innerText = tfSize.toFixed(0);
+      document.getElementById("val-daily-power").innerText = dailyPower.toFixed(2);
+
+      document.getElementById("val-steam-rev").innerText = dailySteamRev.toFixed(2);
+      document.getElementById("val-elec-cost").innerText = dailyElecCost.toFixed(2);
+      document.getElementById("val-daily-spread").innerText = (dailySpread > 0 ? "+" : "") + dailySpread.toFixed(2);
+      document.getElementById("val-annual-spread").innerText = (annualSpread > 0 ? "+" : "") + annualSpread.toFixed(1);
+
+      requestAnimationFrame(updateDagWiring);
+    }
+
+    // 阶段切换
+    function switchStage(stage) {
+      activeStage = stage;
+      const tab1 = document.getElementById("tab-stage-1");
+      const tab2 = document.getElementById("tab-stage-2");
+      const hint = document.getElementById("stage-desc-hint");
+      const btnText = document.getElementById("action-btn-text");
+
+      if (stage === 1) {
+        tab1.className = "px-4 py-1 font-bold rounded transition-all flex items-center gap-2 bg-white text-paper-text shadow-xs";
+        tab2.className = "px-4 py-1 font-medium text-paper-muted hover:text-paper-text rounded transition-all flex items-center gap-2";
+        hint.innerText = "// 阶段 01: 流程与拓扑审核（点击算子修改、线缆 [+] 插入算子、右上角 ✕ 删除算子）";
+        btnText.innerText = "确认场景拓扑";
+      } else {
+        tab2.className = "px-4 py-1 font-bold rounded transition-all flex items-center gap-2 bg-white text-paper-text shadow-xs";
+        tab1.className = "px-4 py-1 font-medium text-paper-muted hover:text-paper-text rounded transition-all flex items-center gap-2";
+        hint.innerText = "// 阶段 02: 工况参数填报与核对（可直接在图中编辑数值，即时联动）";
+        btnText.innerText = "保存参数并授权计算";
+      }
+      requestAnimationFrame(updateDagWiring);
+    }
+
+    function handlePrimaryAction() {
+      if (activeStage === 1) {
+        alert("【拓扑审核通过】流水线逻辑已确认！进入阶段 02 参数核实。");
+        switchStage(2);
+      } else {
+        alert("【参数确认授权】所有工况数值已通过人工审核！系统状态流转为 PARAMETERS_CONFIRMED，解除计算拦截。");
+      }
+    }
+
+    // 算子抽屉
+    function openDrawer(opId) {
+      activeOpId = opId;
+      const op = operatorRegistry[opId];
+      if (!op) return;
+
+      document.getElementById("drawer-id").value = opId;
+      document.getElementById("drawer-name").value = op.name;
+      document.getElementById("drawer-formula").value = op.formula;
+      document.getElementById("drawer-desc").value = op.desc;
+
+      const pContainer = document.getElementById("drawer-pins");
+      pContainer.innerHTML = op.pins.map(p => `
+        <div class="flex items-center justify-between p-1.5 bg-[#FAF7EE] border border-paper-border rounded text-[11px] font-mono">
+          <span class="font-bold text-paper-text">${p.label} (${p.name})</span>
+          <span class="text-paper-muted">[${p.unit}]</span>
+        </div>
+      `).join('');
+
+      document.getElementById("operator-drawer").classList.remove("translate-x-full");
+    }
+
+    function closeDrawer() {
+      activeOpId = null;
+      document.getElementById("operator-drawer").classList.add("translate-x-full");
+    }
+
+    function saveDrawer() {
+      if (!activeOpId) return;
+      const op = operatorRegistry[activeOpId];
+      if (!op) return;
+
+      op.name = document.getElementById("drawer-name").value;
+      op.formula = document.getElementById("drawer-formula").value;
+      op.desc = document.getElementById("drawer-desc").value;
+
+      alert(`【算子原地更新】算子 ${activeOpId} 已更新并生效！`);
+      closeDrawer();
+      runLiveRecalc();
+    }
+
+    // 插入算子交互 (线缆 [+] 插点)
+    function promptInsertStep(fromNode, toNode) {
+      document.getElementById("modal-title").innerText = `在此连接线中插入算子 (${fromNode} -> ${toNode})`;
+      openAddOperatorModal();
+    }
+
+    // 删除算子交互 (卡片 ✕ 删除)
+    function deleteStep(opId) {
+      if (confirm(`确定要从流水线中移除算子【${opId}】吗？`)) {
+        alert(`算子【${opId}】已从流程中移除！`);
+      }
+    }
+
+    // 新增算子
+    function openAddOperatorModal() {
+      document.getElementById("modal-add-op").classList.remove("hidden");
+    }
+    function closeAddOperatorModal() {
+      document.getElementById("modal-add-op").classList.add("hidden");
+    }
+    function confirmNewOperator() {
+      const id = document.getElementById("new-id").value.trim();
+      const name = document.getElementById("new-name").value.trim();
+      const eq = document.getElementById("new-eq").value.trim();
+      if (!id || !name || !eq) {
+        alert("请完整填写算子ID、名称和公式！");
+        return;
+      }
+      operatorRegistry[id] = { name: name, formula: eq, desc: "由工程师手动插入的自定义热工算子。", pins: [] };
+      closeAddOperatorModal();
+      alert(`【算子添加成功】新算子 ${id} 已加入系统算子库！`);
+    }
+
+    function resetDefaults() {
+      document.getElementById("inp-sp").value = 1.5;
+      document.getElementById("inp-st").value = 200.0;
+      document.getElementById("inp-fp").value = 0.1;
+      document.getElementById("inp-ft").value = 20.0;
+      document.getElementById("inp-flow").value = 100.0;
+      document.getElementById("inp-steam-hours").value = 8.0;
+      document.getElementById("inp-valley-hours").value = 8.0;
+      document.getElementById("inp-steam-price").value = 180.0;
+      document.getElementById("inp-elec-price").value = 0.30;
+      document.getElementById("inp-eff-hx").value = 0.99;
+      document.getElementById("inp-eff-store").value = 0.99;
+      runLiveRecalc();
+    }
+
+    window.addEventListener("load", () => {
+      runLiveRecalc();
+      setTimeout(updateDagWiring, 50);
+
+      const ro = new ResizeObserver(() => updateDagWiring());
+      ro.observe(document.getElementById("dag-workspace"));
+      window.addEventListener("resize", updateDagWiring);
+    });
+  </script>
+</body>
+</html>
