@@ -36,6 +36,7 @@ class SessionState(BaseModel):
     scenario_description: Optional[str] = None
     is_new_scenario: bool = False
     new_scenario_draft: Optional[Dict[str, Any]] = None
+    pipeline_data: Optional[Dict[str, Any]] = None
 
     user_requirements: str = ""
     provided_parameters: Dict[str, Any] = Field(default_factory=dict)
@@ -70,8 +71,8 @@ class WorkflowManager:
         session.is_new_scenario = False
         session.user_requirements = user_requirements
         session.provided_parameters = initial_inputs
+        session.pipeline_data = pipeline.to_dict()
         session.current_state = WorkflowState.SCENARIO_PROPOSED
-
         return {
             "session_id": session_id,
             "status": session.current_state.value,
@@ -235,7 +236,10 @@ class WorkflowManager:
                 f"计算引擎坚决拒绝执行！合法流转必须为: SCENARIO_CONFIRMED -> PARAMETERS_CONFIRMED -> 执行计算。"
             )
 
-        pipeline = pipeline_registry.get(session.scenario_id)
+        if session.pipeline_data:
+            pipeline = Pipeline.from_dict(session.pipeline_data)
+        else:
+            pipeline = pipeline_registry.get(session.scenario_id)
         result = pipeline.execute(session.provided_parameters, default_formula_registry)
 
         session.current_state = WorkflowState.CALCULATED
@@ -248,6 +252,44 @@ class WorkflowManager:
             "message": "计算完成！已生成确定性结构化工程测算结果。",
             "result": session.calculation_result
         }
+
+    def get_session_view(self, session_id: str) -> Dict[str, Any]:
+        """获取用于前端可视化渲染的完整会话数据模型"""
+        session = self.get_or_create_session(session_id)
+        if not session.pipeline_data and session.scenario_id:
+            try:
+                p = pipeline_registry.get(session.scenario_id)
+                session.pipeline_data = p.to_dict()
+            except KeyError:
+                pass
+
+        return {
+            "session_id": session.session_id,
+            "current_state": session.current_state.value,
+            "scenario_id": session.scenario_id,
+            "scenario_name": session.scenario_name,
+            "scenario_description": session.scenario_description,
+            "pipeline": session.pipeline_data,
+            "provided_parameters": session.provided_parameters,
+            "inspected_parameters": session.inspected_parameters,
+            "calculation_result": session.calculation_result,
+            "formulas": default_formula_registry.to_ai_catalog(),
+        }
+
+    def update_pipeline_in_session(self, session_id: str, new_pipeline_dict: Dict[str, Any]) -> None:
+        """前端修改流水线拓扑后同步保存"""
+        session = self.get_or_create_session(session_id)
+        session.pipeline_data = new_pipeline_dict
+        if "name" in new_pipeline_dict:
+            session.scenario_name = new_pipeline_dict["name"]
+        if "description" in new_pipeline_dict:
+            session.scenario_description = new_pipeline_dict["description"]
+
+    def update_parameters_in_session(self, session_id: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """前端修改参数后同步保存并重新检查"""
+        session = self.get_or_create_session(session_id)
+        session.provided_parameters.update(parameters)
+        return self.inspect_parameters(session_id)
 
 
 workflow_manager = WorkflowManager()

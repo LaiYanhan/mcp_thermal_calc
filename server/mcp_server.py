@@ -5,6 +5,7 @@ Strictly implements the Image #2 state machine with staged human-in-the-loop aut
 
 import json
 import os
+import webbrowser
 from typing import Any, Dict, List, Optional
 from mcp.server.mcpserver import MCPServer
 import formulas
@@ -12,8 +13,7 @@ import pipelines
 from core.formula import default_formula_registry
 from core.pipeline import pipeline_registry
 from core.state_machine import WorkflowState, workflow_manager, StateTransitionError
-
-
+from server.web_app import ensure_web_server_running, WEB_SERVER_HOST, WEB_SERVER_PORT
 # 初始化 MCP 服务器实例
 mcp_server = MCPServer("thermal-calc-sizing-engine")
 
@@ -69,6 +69,17 @@ def match_or_propose_scenario(
             user_requirements=user_requirements,
             initial_inputs=inputs,
         )
+
+        # 启动轻量可视化服务并在浏览器中呼出编辑器
+        try:
+            ensure_web_server_running()
+            editor_url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/editor?session_id={session_id}&stage=1"
+            result["editor_url"] = editor_url
+            result["message"] += f"\n\n已为您在浏览器中打开可视化流程编辑器: {editor_url}\n您可在图上自由拖拽排版、微调算子公式或进行前插/后插修改。"
+            webbrowser.open(editor_url)
+        except Exception:
+            pass
+
         return json.dumps(result, ensure_ascii=False, indent=2)
     except KeyError:
         return json.dumps(
@@ -131,9 +142,17 @@ def inspect_and_validate_parameters(
             session_id=session_id,
             parameters=parameters,
         )
+
+        try:
+            ensure_web_server_running()
+            editor_url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/editor?session_id={session_id}&stage=2"
+            res["editor_url"] = editor_url
+            res["message"] += f"\n\n已为您切换至参数填报视图: {editor_url}\n您可直接在图中编辑数值，全流程多目标成果将即时联动推导。"
+            webbrowser.open(editor_url)
+        except Exception:
+            pass
+
         return json.dumps(res, ensure_ascii=False, indent=2)
-    except StateTransitionError as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
 
 
 @mcp_server.tool()
@@ -317,6 +336,32 @@ def register_new_pipeline(
         indent=2,
     )
 
+
+
+@mcp_server.tool()
+def open_pipeline_editor(
+    session_id: str = "default_session",
+    stage: int = 1,
+) -> str:
+    """
+    直接在本地默认浏览器中打开可视化管道推导图编辑器。
+    支持自由拖拽卡片与常量、前插/后插算子、原地修改公式及实时数学联动参数核对。
+    
+    参数：
+      session_id: 会话ID (默认 default_session)
+      stage: 视图阶段 (1 为拓扑审查态，2 为工况参数填报态)
+    """
+    try:
+        ensure_web_server_running()
+        editor_url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/editor?session_id={session_id}&stage={stage}"
+        webbrowser.open(editor_url)
+        return json.dumps({
+            "status": "SUCCESS",
+            "editor_url": editor_url,
+            "message": f"已在浏览器中打开可视化流程编辑器: {editor_url}"
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
 
 def run_server():
     """启动 MCP 服务"""
