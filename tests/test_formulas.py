@@ -22,20 +22,24 @@ def test_iapws_water_steam_enthalpy():
 
 def test_algebraic_bidirectional_solving():
     """测试代数公式的正向与逆向自动解析求解"""
-    sgs_f = default_formula_registry.get("thermal.sgs_power")
-    # 正向: 已知流量 100 t/h, 焓差 2712.0 kJ/kg, 求功率
-    fwd = sgs_f.execute({"steam_mass_flow": 100.0, "enthalpy_diff": 2712.0})
+    theo_f = default_formula_registry.get("thermal.theoretical_power")
+    # 正向: 已知流量 100 t/h, 焓差 2712.0 kJ/kg, 求理论产汽功率
+    fwd = theo_f.execute({"steam_mass_flow": 100.0, "enthalpy_diff": 2712.0})
     expected_mw = 100.0 * 2712.0 / 3600.0
-    assert abs(fwd["sgs_power"] - expected_mw) < 1e-4
+    assert abs(fwd["theoretical_power"] - expected_mw) < 1e-4
 
     # 逆向 1: 已知目标功率 75.3333 MW, 焓差 2712.0 kJ/kg, 反求蒸汽流量
-    rev_flow = sgs_f.solve({"sgs_power": expected_mw, "enthalpy_diff": 2712.0}, "steam_mass_flow")
+    rev_flow = theo_f.solve({"theoretical_power": expected_mw, "enthalpy_diff": 2712.0}, "steam_mass_flow")
     assert abs(rev_flow - 100.0) < 1e-4
 
-    # 逆向 2: 已知目标功率 75.3333 MW, 蒸汽流量 100 t/h, 反求所需焓差
-    rev_dh = sgs_f.solve({"sgs_power": expected_mw, "steam_mass_flow": 100.0}, "enthalpy_diff")
-    assert abs(rev_dh - 2712.0) < 1e-4
+    # 逆向 2: 已知理论功率，经换热效率求SGS功率
+    sgs_f = default_formula_registry.get("thermal.sgs_power")
+    sgs_res = sgs_f.execute({"theoretical_power": expected_mw, "heat_exchanger_efficiency": 0.99})
+    assert abs(sgs_res["sgs_power"] - expected_mw / 0.99) < 1e-4
 
+    # 逆向 3: 已知SGS功率与效率，反求理论产汽功率
+    rev_theo = sgs_f.solve({"sgs_power": sgs_res["sgs_power"], "heat_exchanger_efficiency": 0.99}, "theoretical_power")
+    assert abs(rev_theo - expected_mw) < 1e-4
 
 def test_discrete_equipment_sizing():
     """测试离散选型原子公式"""
