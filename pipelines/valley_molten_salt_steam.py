@@ -22,23 +22,23 @@ def _get_pin(key: str) -> Pin:
 
 # 1. 声明该管道必需的所有工况输入参数（附带标准工程基准默认值与中文注释）
 VALLEY_SALT_STEAM_REQUIRED_INPUTS = [
-    _get_pin("steam_pressure"),
-    _get_pin("steam_temperature"),
-    _get_pin("steam_mass_flow"),
-    _get_pin("feedwater_pressure"),
-    _get_pin("feedwater_temperature"),
-    _get_pin("steam_supply_hours"),
-    _get_pin("valley_electricity_hours"),
-    _get_pin("annual_operating_days"),
-    _get_pin("electric_heater_efficiency"),
-    _get_pin("heat_exchanger_efficiency"),
-    _get_pin("thermal_storage_efficiency"),
-    _get_pin("salt_hot_temperature"),
-    _get_pin("salt_cold_temperature"),
-    _get_pin("salt_specific_heat"),
-    _get_pin("salt_safety_margin"),
-    _get_pin("valley_electricity_price"),
-    _get_pin("steam_market_price"),
+    _get_pin("steam_pressure"),              # 蒸汽绝对工作压力 (基准默认 1.5 MPa)
+    _get_pin("steam_temperature"),           # 蒸汽供汽温度 (基准默认 200.0 ℃)
+    _get_pin("steam_mass_flow"),             # 额定蒸汽瞬时质量流量 (基准默认 100.0 t/h)
+    _get_pin("feedwater_pressure"),          # 换热器/锅炉给水绝对压力 (基准默认 0.1 MPa)
+    _get_pin("feedwater_temperature"),       # 给水水温 (基准默认 20.0 ℃)
+    _get_pin("steam_supply_hours"),          # 每日连续供汽时长 (基准默认 8.0 h)
+    _get_pin("valley_electricity_hours"),    # 每日低谷电蓄热时长 (基准默认 8.0 h)
+    _get_pin("annual_operating_days"),       # 年有效运行天数 (基准默认 330.0 d)
+    _get_pin("electric_heater_efficiency"),  # 电加热器电热转换综合效率 (工程常量，默认 0.985)
+    _get_pin("heat_exchanger_efficiency"),   # SGS换热器换热综合效率 (工程常量，默认 0.99)
+    _get_pin("thermal_storage_efficiency"),  # 熔盐储热罐保温与储热效率 (工程常量，默认 0.99)
+    _get_pin("salt_hot_temperature"),        # 储热高温熔盐工作温度 (HITEC盐默认 390.0 ℃)
+    _get_pin("salt_cold_temperature"),       # 储热低温熔盐工作温度 (HITEC盐默认 190.0 ℃)
+    _get_pin("salt_specific_heat"),          # 熔盐平均定压比热容 (工程常量，默认 1.42 kJ/(kg·℃))
+    _get_pin("salt_safety_margin"),          # 熔盐设计安全冗余系数 (工程常量，默认 1.10)
+    _get_pin("valley_electricity_price"),    # 当地工业低谷电价 (基准默认 0.30 元/kWh)
+    _get_pin("steam_market_price"),          # 当地工业蒸汽销售单价 (基准默认 180.0 元/t)
 ]
 
 
@@ -51,7 +51,7 @@ VALLEY_SALT_STEAM_STEPS = [
         formula_id="thermal.steam_enthalpy",
         input_map={"steam_pressure": "steam_pressure", "steam_temperature": "steam_temperature"},
         output_map={"steam_enthalpy": "steam_enthalpy"},
-        description="根据蒸汽压力和温度，基于 IAPWS-IF97 物性库查表计算蒸汽比焓",
+        description="根据蒸汽压力和温度，基于 IAPWS-95 物性库查表计算蒸汽比焓",
     ),
     # 步骤 2: 查表确定给水比焓
     # 公式：根据 (给水压力, 给水温度) 查IAPWS水蒸气物性表 = 给水比焓
@@ -60,7 +60,7 @@ VALLEY_SALT_STEAM_STEPS = [
         formula_id="thermal.water_enthalpy",
         input_map={"feedwater_pressure": "feedwater_pressure", "feedwater_temperature": "feedwater_temperature"},
         output_map={"feedwater_enthalpy": "feedwater_enthalpy"},
-        description="根据给水压力和温度，基于 IAPWS-IF97 物性库查表计算给水比焓",
+        description="根据给水压力和温度，基于 IAPWS-95 物性库查表计算给水比焓",
     ),
     # 步骤 3: 计算有效换热焓差
     # 公式：蒸汽焓值 - 给水焓值 = 焓差
