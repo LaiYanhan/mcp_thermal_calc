@@ -9,4 +9,6 @@ import formulas.operation.operating_economics  # noqa: F401
 import formulas.sizing.equipment_sizing  # noqa: F401
 from core.formula import default_formula_registry
 
+default_formula_registry.load_saved()
+
 __all__ = ["default_formula_registry"]

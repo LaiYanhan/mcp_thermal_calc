@@ -53,10 +53,10 @@ def test_valley_salt_steam_pipeline_engineering_alignment():
 
     # 7. 选型结果对比
     # 电加热器 80 MW, SGS 80 MW, 变压器 90 MVA, 熔盐 8580 t
-    assert result.sizing_summary["heater_sizing_mw"] == 80.0
-    assert result.sizing_summary["sgs_sizing_mw"] == 80.0
-    assert result.sizing_summary["transformer_capacity_mva"] == 90.0
-    assert result.sizing_summary["salt_mass_tons"] == 8580.0
+    assert result.final_outputs["heater_sizing_mw"] == 80.0
+    assert result.final_outputs["sgs_sizing_mw"] == 80.0
+    assert result.final_outputs["transformer_capacity_mva"] == 90.0
+    assert result.final_outputs["salt_mass_tons"] == 8580.0
 
     # 8. 年用电量与供汽量
     # 年用电量约 20600 万kWh (78.03 * 8 * 330 / 10)

@@ -16,6 +16,7 @@ def _get_pin(key: str) -> Pin:
         min_value=cfg["min_value"],
         max_value=cfg["max_value"],
         default_value=cfg["value"],
+        kind="constant" if key in ("electric_heater_efficiency", "heat_exchanger_efficiency", "thermal_storage_efficiency", "salt_specific_heat", "salt_safety_margin") else "input",
     )
 
 
@@ -292,23 +293,8 @@ valley_molten_salt_steam_pipeline = Pipeline(
     ),
     required_inputs=VALLEY_SALT_STEAM_REQUIRED_INPUTS,
     steps=VALLEY_SALT_STEAM_STEPS,
-    sizing_output_keys=[
-        "sgs_sizing_mw",
-        "heater_sizing_mw",
-        "transformer_capacity_mva",
-        "salt_mass_tons",
-        "thermal_storage_capacity",
-    ],
-    economic_output_keys=[
-        "daily_power_mwh",
-        "annual_power_wan_kwh",
-        "daily_steam_tons",
-        "annual_steam_wan_tons",
-        "daily_electricity_cost",
-        "daily_steam_revenue",
-        "daily_operating_spread",
-        "annual_operating_spread_wan",
-    ],
+    salt_profile="HITEC",
+
 )
 
 # 自动注册进管道注册表

@@ -11,12 +11,29 @@ from core.types import FormulaMetadata, FormulaType, Pin
 _xsteam = XSteam(XSteam.UNIT_SYSTEM_MKS)
 
 
+def _validate_steam_state(inputs: dict) -> None:
+    pressure, temperature = inputs["steam_pressure"], inputs["steam_temperature"]
+    # 临界点以上按单相流体处理；低于临界压力时必须处于汽相侧。
+    minimum = _xsteam.tsat_p(pressure * 10.0) if pressure * 10.0 < _xsteam.criticalPressure() else _xsteam.criticalTemperatur()
+    if temperature < minimum - 1e-5:
+        raise ValueError("蒸汽温度低于该绝对压力的汽相边界，请核对绝压与温度")
+
+
+def _validate_water_state(inputs: dict) -> None:
+    pressure, temperature = inputs["feedwater_pressure"], inputs["feedwater_temperature"]
+    if pressure * 10.0 < _xsteam.criticalPressure() and temperature >= _xsteam.tsat_p(pressure * 10.0) - 1e-5:
+        raise ValueError("给水必须处于液相区，请核对绝对压力与温度")
+
+
 def _calc_steam_enthalpy(inputs: dict) -> dict:
     p_mpa = inputs["steam_pressure"]
     t_c = inputs["steam_temperature"]
     # 1 MPa = 10 bar
     p_bar = p_mpa * 10.0
-    h_kj_kg = float(_xsteam.h_pt(p_bar, t_c))
+    if p_bar < _xsteam.criticalPressure() and abs(t_c - _xsteam.tsat_p(p_bar)) <= 1e-5:
+        h_kj_kg = float(_xsteam.hV_p(p_bar))
+    else:
+        h_kj_kg = float(_xsteam.h_pt(p_bar, t_c))
     return {"steam_enthalpy": h_kj_kg}
 
 # ================= 1. 蒸汽焓值查表计算 =================
@@ -33,7 +50,7 @@ steam_enthalpy_formula = EmpiricalFormula(
             Pin(
                 name="steam_pressure",
                 unit="MPa",
-                description="蒸汽工作压力（MPa）",
+                description="蒸汽绝对工作压力（MPa）",
                 min_value=0.1,
                 max_value=25.0,
                 default_value=1.5,
@@ -59,6 +76,7 @@ steam_enthalpy_formula = EmpiricalFormula(
         is_bidirectional=False,
     ),
     func=_calc_steam_enthalpy,
+    validator=_validate_steam_state,
 )
 
 
@@ -84,7 +102,7 @@ water_enthalpy_formula = EmpiricalFormula(
             Pin(
                 name="feedwater_pressure",
                 unit="MPa",
-                description="给水压力（MPa）",
+                description="给水绝对压力（MPa）",
                 min_value=0.05,
                 max_value=25.0,
                 default_value=0.1,
@@ -110,6 +128,7 @@ water_enthalpy_formula = EmpiricalFormula(
         is_bidirectional=False,
     ),
     func=_calc_water_enthalpy,
+    validator=_validate_water_state,
 )
 
 # 自动注册

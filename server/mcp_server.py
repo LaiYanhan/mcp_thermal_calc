@@ -1,370 +1,160 @@
-"""
-Model Context Protocol (MCP) Server for Thermal Calculation & Sizing System.
-Strictly implements the Image #2 state machine with staged human-in-the-loop authorization guards.
-"""
+"""MCP 工具适配层：所有计算、编辑与授权均委托给核心模块。"""
 
 import json
-import os
+import sys
 import webbrowser
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional
+from urllib.parse import urlencode
+from pydantic import StrictBool
+
+# 兼容 README 中直接执行 server/mcp_server.py 的启动方式。
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from mcp.server.mcpserver import MCPServer
 import formulas
 import pipelines
 from core.formula import default_formula_registry
 from core.pipeline import pipeline_registry
-from core.state_machine import WorkflowState, workflow_manager, StateTransitionError
-from server.web_app import ensure_web_server_running, WEB_SERVER_HOST, WEB_SERVER_PORT
-# 初始化 MCP 服务器实例
+from core.state_machine import workflow_manager, StateTransitionError
+from core.extensions import parse_definition, validate_filename
+from server.web_app import ensure_web_server_running
+
 mcp_server = MCPServer("thermal-calc-sizing-engine")
+
+
+def response(data):
+    return json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False)
+
+
+def run_workflow(function, **kwargs):
+    try:
+        return response(function(**kwargs))
+    except (ValueError, KeyError, TypeError, StateTransitionError, ArithmeticError) as error:
+        return response({"error": str(error), "security_block": isinstance(error, StateTransitionError)})
+
+
+def editor_link(session_id, stage):
+    base = ensure_web_server_running()
+    return base + "/editor?" + urlencode({"session_id": session_id, "stage": stage})
 
 
 @mcp_server.tool()
 def list_scenarios() -> str:
-    """
-    列出系统中所有已注册的计算场景管道（Pipeline）清单。
-    返回每个场景的唯一ID、名称、业务领域、适用工况、详细说明及所需输入变量定义。
-    """
-    catalog = pipeline_registry.to_ai_catalog()
-    return json.dumps(catalog, ensure_ascii=False, indent=2)
+    """列出已注册、可执行的场景管道。"""
+    return response(pipeline_registry.to_ai_catalog())
 
 
 @mcp_server.tool()
 def list_formulas() -> str:
+    """列出原子公式。variables 给出所有参数的含义、单位和约束，solve_targets 为可选待求量。
+    inputs/outputs 表示默认方向；节点设置 solve_target 后，其余 variables 全部作为已知输入。
     """
-    列出系统中所有已注册的原子公式（Atomic Formula）清单。
-    包含每个公式的ID、中文名称、类别（热平衡/选型/运行经济）、物理方程或查表逻辑、
-    每个入参/出参的物理单位、详细中文释义及物理区间约束。
-    """
-    catalog = default_formula_registry.to_ai_catalog()
-    return json.dumps(catalog, ensure_ascii=False, indent=2)
+    return response(default_formula_registry.to_ai_catalog())
 
 
 @mcp_server.tool()
-def match_or_propose_scenario(
-    session_id: str,
-    user_requirements: str,
-    scenario_id: Optional[str] = None,
-    initial_inputs: Optional[Dict[str, Any]] = None,
-) -> str:
+def match_or_propose_scenario(session_id: str, user_requirements: str, scenario_id: Optional[str] = None,
+                              initial_inputs: Optional[Dict[str, Any]] = None,
+                              new_scenario_def: Optional[Dict[str, Any]] = None) -> str:
+    """提议明确选择的已有场景或声明式新场景。调用后必须等待人工确认。
+    new_scenario_def.steps 中每步可设置 solve_target（公式变量名），input_map 绑定其余全部变量的来源，
+    output_map 将待求变量映射到本步骤产出变量。省略 solve_target 使用公式默认方向，查表算子不可反算。
+    全部步骤输出自动成为成果，不需要输出分组。先用 list_formulas 获取可求变量及物理含义。
     """
-    【流程第1步 - 模式匹配】
-    根据用户输入的工程需求与数据，匹配现有管道或提议新管道。
-    注意：调用此工具后，会话状态自动切换为 SCENARIO_PROPOSED（场景待确认）。
-    AI 必须停下来向人类汇报该场景匹配结果与设计逻辑，等待人类确认后方可调用 confirm_scenario！
-    
-    参数：
-      session_id: 当前会话唯一ID（如 "session_001"）
-      user_requirements: 人类工程需求描述文本
-      scenario_id: 若明确知道场景ID可直接指定（如 "scenario_valley_salt_steam"），不填则默认匹配基准场景
-      initial_inputs: 用户在对话中已提及的已知参数键值对（可选）
-    """
-    inputs = initial_inputs or {}
-    matched_id = scenario_id or "scenario_valley_salt_steam"
-
+    if scenario_id is None and new_scenario_def is None:
+        return response({"status": "SCENARIO_SELECTION_REQUIRED", "message": "请从场景目录选择匹配的场景 ID，或提交新场景定义；不自动把陌生需求当成基准场景。", "scenarios": pipeline_registry.to_ai_catalog()})
+    if scenario_id is not None and new_scenario_def is not None:
+        return response({"error": "已有场景 ID 与新场景定义只能指定一个"})
     try:
-        pipeline = pipeline_registry.get(matched_id)
-        result = workflow_manager.propose_existing_scenario(
-            session_id=session_id,
-            scenario_id=matched_id,
-            user_requirements=user_requirements,
-            initial_inputs=inputs,
-        )
-
-        # 启动轻量可视化服务并在浏览器中呼出编辑器
+        if new_scenario_def is not None:
+            result = workflow_manager.propose_new_scenario(session_id, new_scenario_def, user_requirements, initial_inputs or {})
+        else:
+            result = workflow_manager.propose_existing_scenario(session_id, scenario_id, user_requirements, initial_inputs or {})
         try:
-            ensure_web_server_running()
-            editor_url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/editor?session_id={session_id}&stage=1"
-            result["editor_url"] = editor_url
-            result["message"] += f"\n\n已为您在浏览器中打开可视化流程编辑器: {editor_url}\n您可在图上自由拖拽排版、微调算子公式或进行前插/后插修改。"
-            webbrowser.open(editor_url)
-        except Exception:
-            pass
-
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except KeyError:
-        return json.dumps(
-            {
-                "error": f"未找到场景 '{matched_id}'。如需为陌生场景新建管道，请先草拟管道结构并提交审核。",
-                "status": "SCENARIO_NOT_FOUND",
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+            result["editor_url"] = editor_link(session_id, 1)
+            webbrowser.open(result["editor_url"])
+        except RuntimeError as error:
+            result["editor_error"] = str(error)
+        return response(result)
+    except (ValueError, KeyError, TypeError) as error:
+        return response({"error": str(error)})
 
 
 @mcp_server.tool()
-def confirm_scenario(
-    session_id: str,
-    confirmed: bool,
-    feedback: str = "",
-) -> str:
-    """
-    【流程第2步 - 人工确认场景】
-    记录人类对场景匹配结果的确认决策。
-    若 confirmed=True，状态解锁为 SCENARIO_CONFIRMED，允许进入下一步参数检查；
-    若 confirmed=False，状态重置为 MODIFICATION_REQUESTED，AI 必须根据 feedback 重新调整场景。
-    
-    参数：
-      session_id: 当前会话唯一ID
-      confirmed: 人类是否明确同意当前场景（True 或 False）
-      feedback: 若人类不同意，在此传入人类的具体修改意见
-    """
+def confirm_scenario(session_id: str, confirmed: StrictBool, feedback: str = "") -> str:
+    """记录用户明确给出的场景确认或修改意见。"""
+    return run_workflow(workflow_manager.confirm_scenario, session_id=session_id, confirmed=confirmed, feedback=feedback)
+
+
+@mcp_server.tool()
+def inspect_and_validate_parameters(session_id: str, parameters: Optional[Dict[str, Any]] = None) -> str:
+    """核对当前会话管道的输入、缺项和默认值；变更参数会撤销旧计算授权。"""
+    return run_workflow(workflow_manager.inspect_parameters, session_id=session_id, parameters=parameters)
+
+
+@mcp_server.tool()
+def confirm_parameters(session_id: str, confirmed: StrictBool, feedback: str = "") -> str:
+    """用户核对参数后显式授权，或者打回修改。"""
+    return run_workflow(workflow_manager.confirm_parameters, session_id=session_id, confirmed=confirmed, feedback=feedback)
+
+
+@mcp_server.tool()
+def execute_calculation(session_id: str) -> str:
+    """仅对已确认且未变化的场景、算子与参数执行确定性计算。"""
+    return run_workflow(workflow_manager.execute_calculation, session_id=session_id)
+
+
+@mcp_server.tool()
+def solve_atomic_formula(formula_id: str, known_variables: Dict[str, Any], target_variable: str, session_id: str) -> str:
+    """在已确认工况范围内正向或逆向求解原子公式，不能绕过会话授权。"""
+    return run_workflow(workflow_manager.solve_atomic_formula, session_id=session_id, formula_id=formula_id,
+                        known_variables=known_variables, target_variable=target_variable)
+
+
+@mcp_server.tool()
+def register_new_formula(formula_code: str, sub_category: str, filename: str, human_approved: StrictBool) -> str:
+    """保存人工审核通过的声明式公式（JSON 或受限模板），校验、落盘并即时注册。"""
+    if human_approved is not True:
+        return response({"status": "REJECTED", "error": "请先获得人类工程师对公式的审核同意"})
     try:
-        res = workflow_manager.confirm_scenario(
-            session_id=session_id,
-            confirmed=confirmed,
-            feedback=feedback,
-        )
-        return json.dumps(res, ensure_ascii=False, indent=2)
-    except StateTransitionError as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+        validate_filename(filename)
+        validate_filename(sub_category)
+        data = parse_definition(formula_code, "formula")
+        data["category"] = sub_category
+        formula = default_formula_registry.save_operator(data)
+        return response({"status": "SUCCESS", "formula_id": formula.metadata.id, "message": "公式已保存并注册"})
+    except (ValueError, TypeError, KeyError, SyntaxError) as error:
+        return response({"error": str(error)})
 
 
 @mcp_server.tool()
-def inspect_and_validate_parameters(
-    session_id: str,
-    parameters: Optional[Dict[str, Any]] = None,
-) -> str:
-    """
-    【流程第3步 - 输入变量匹配与缺项分析】
-    前置依赖：场景必须已被人工确认（SCENARIO_CONFIRMED）。
-    根据选定管道的参数规范，校验传入的数值是否合法，并自动从 constants 注入标准工程默认值。
-    - 若存在无默认值的必填缺失项：输出缺失变量清单及详细工程释义，提示 AI 询问人类补充；
-    - 若所有输入参数已完整明确：状态切换为 PARAMETERS_INSPECTED，输出包含单位和注释的完整参数清单，
-      提示 AI 必须向人类汇报并征求确认！
-    
-    参数：
-      session_id: 当前会话唯一ID
-      parameters: 本次提供或补充的输入参数字典（如 {"steam_mass_flow": 120.0}）
-    """
+def register_new_pipeline(pipeline_code: str, pipeline_filename: str, human_approved: StrictBool) -> str:
+    """保存人工审核通过的声明式 Pipeline（JSON 或受限模板），验证 DAG 后即时注册。"""
+    if human_approved is not True:
+        return response({"status": "REJECTED", "error": "请先获得人类对流水线的审核同意"})
     try:
-        res = workflow_manager.inspect_parameters(
-            session_id=session_id,
-            parameters=parameters,
-        )
-
-        try:
-            ensure_web_server_running()
-            editor_url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/editor?session_id={session_id}&stage=2"
-            res["editor_url"] = editor_url
-            res["message"] += f"\n\n已为您切换至参数填报视图: {editor_url}\n您可直接在图中编辑数值，全流程多目标成果将即时联动推导。"
-            webbrowser.open(editor_url)
-        except Exception:
-            pass
-
-        return json.dumps(res, ensure_ascii=False, indent=2)
+        validate_filename(pipeline_filename)
+        pipeline = parse_definition(pipeline_code, "pipeline")
+        pipeline_registry.save_pipeline(pipeline)
+        return response({"status": "SUCCESS", "pipeline_id": pipeline.id, "message": "流水线已保存并注册"})
+    except (ValueError, TypeError, KeyError, SyntaxError) as error:
+        return response({"error": str(error)})
 
 
 @mcp_server.tool()
-def confirm_parameters(
-    session_id: str,
-    confirmed: bool,
-    feedback: str = "",
-) -> str:
-    """
-    【流程第4步 - 人工确认参数】
-    记录人类对所有输入参数与默认值配置的最终审核结果。
-    若 confirmed=True，状态流转至 PARAMETERS_CONFIRMED，正式授权程序计算；
-    若 confirmed=False，状态进入 MODIFICATION_REQUESTED，AI 根据意见修改参数后重新校验。
-    
-    参数：
-      session_id: 当前会话唯一ID
-      confirmed: 人类是否确认参数清单完全准确（True 或 False）
-      feedback: 若人类要求修改参数，填入修改意见
-    """
+def open_pipeline_editor(session_id: str = "default_session", stage: int = 1) -> str:
+    """打开同进程的流水线编辑器，页面以会话真实状态为准。"""
     try:
-        res = workflow_manager.confirm_parameters(
-            session_id=session_id,
-            confirmed=confirmed,
-            feedback=feedback,
-        )
-        return json.dumps(res, ensure_ascii=False, indent=2)
-    except StateTransitionError as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
+        url = editor_link(session_id, stage)
+        webbrowser.open(url)
+        return response({"status": "SUCCESS", "editor_url": url})
+    except RuntimeError as error:
+        return response({"error": str(error)})
 
-
-@mcp_server.tool()
-def execute_calculation(
-    session_id: str,
-) -> str:
-    """
-    【流程第5步 - 确定性程序计算】
-    【强硬安全守卫】：未经人工确认参数（即会话状态非 PARAMETERS_CONFIRMED），直接抛出异常，拒绝执行！
-    只有在获得人类确认授权后，计算引擎才按照有向无环图执行各原子公式，
-    严禁任何 AI 随意生成数字或私自估算。返回完整的确定性选型规格、能耗、收益与计算步骤明细。
-    
-    参数：
-      session_id: 当前会话唯一ID
-    """
-    try:
-        res = workflow_manager.execute_calculation(session_id=session_id)
-        return json.dumps(res, ensure_ascii=False, indent=2)
-    except StateTransitionError as e:
-        return json.dumps(
-            {
-                "security_block": True,
-                "error": str(e),
-                "instruction_for_agent": (
-                    "严重警告：计算被系统状态机安全守卫物理拦截！"
-                    "您必须先向人类呈现参数清单，获得人类显式确认后"
-                    "调用 confirm_parameters(confirmed=True)，方可授权计算。"
-                ),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-
-
-@mcp_server.tool()
-def solve_atomic_formula(
-    formula_id: str,
-    known_variables: Dict[str, float],
-    target_variable: str,
-) -> str:
-    """
-    单独调用或逆向推导单个原子公式。
-    对于代数公式支持任意未知数反推（如已知功率和温差，逆推所需流量）。
-    
-    参数：
-      formula_id: 公式唯一ID（如 "thermal.sgs_power"）
-      known_variables: 已知参数变量字典（如 {"sgs_power": 75.33, "enthalpy_diff": 2712.0}）
-      target_variable: 目标待求解变量名（如 "steam_mass_flow"）
-    """
-    try:
-        formula = default_formula_registry.get(formula_id)
-        val = formula.solve(known_variables, target_variable)
-        target_pin = (
-            formula.output_pins.get(target_variable)
-            or formula.input_pins.get(target_variable)
-        )
-        unit = target_pin.unit if target_pin else ""
-        desc = target_pin.description if target_pin else target_variable
-        return json.dumps(
-            {
-                "formula_id": formula_id,
-                "formula_name": formula.metadata.name,
-                "target_variable": target_variable,
-                "target_description": desc,
-                "calculated_value": val,
-                "unit": unit,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    except Exception as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
-
-
-@mcp_server.tool()
-def register_new_formula(
-    formula_code: str,
-    sub_category: str,
-    filename: str,
-    human_approved: bool,
-) -> str:
-    """
-    【AI自扩展能力】为陌生场景编写并注册新的原子公式文件。
-    必须满足：
-    1. 遵循标准原子公式模板规范；
-    2. human_approved 必须为 True（即人类工程师已审查确认代码安全与数学公式准确）；
-    3. 成功后写入 formulas/<sub_category>/<filename>.py 并加载注册。
-    """
-    if not human_approved:
-        return json.dumps(
-            {
-                "error": "未获人类工程师审查批准，禁止写入并注册新公式代码！请先展示代码向人类汇报并征求同意。",
-                "status": "REJECTED",
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    target_dir = os.path.join("formulas", sub_category)
-    os.makedirs(target_dir, exist_ok=True)
-    target_path = os.path.join(target_dir, filename if filename.endswith(".py") else f"{filename}.py")
-
-    with open(target_path, "w", encoding="utf-8") as f:
-        f.write(formula_code)
-
-    return json.dumps(
-        {
-            "status": "SUCCESS",
-            "message": f"新原子公式已通过人工审查并成功写入 {target_path}。重启或重载后即可在计算管道中引用。",
-            "file_path": target_path,
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
-
-
-@mcp_server.tool()
-def register_new_pipeline(
-    pipeline_code: str,
-    pipeline_filename: str,
-    human_approved: bool,
-) -> str:
-    """
-    【AI自扩展能力】将人类确认通过的新场景计算管道持久化保存至 pipelines/ 目录。
-    下次遇到同类场景即可直接复用，无需重复编排。
-    human_approved 必须为 True！
-    """
-    if not human_approved:
-        return json.dumps(
-            {
-                "error": "未获人类工程师确认批准，禁止持久化保存新计算管道！请先向人类展示管道拓扑设计。",
-                "status": "REJECTED",
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    target_dir = "pipelines"
-    os.makedirs(target_dir, exist_ok=True)
-    fname = pipeline_filename if pipeline_filename.endswith(".py") else f"{pipeline_filename}.py"
-    target_path = os.path.join(target_dir, fname)
-
-    with open(target_path, "w", encoding="utf-8") as f:
-        f.write(pipeline_code)
-
-    return json.dumps(
-        {
-            "status": "SUCCESS",
-            "message": f"新场景计算管道已成功保存至 {target_path}。今后可直接作为已有场景调用！",
-            "file_path": target_path,
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
-
-
-
-@mcp_server.tool()
-def open_pipeline_editor(
-    session_id: str = "default_session",
-    stage: int = 1,
-) -> str:
-    """
-    直接在本地默认浏览器中打开可视化管道推导图编辑器。
-    支持自由拖拽卡片与常量、前插/后插算子、原地修改公式及实时数学联动参数核对。
-    
-    参数：
-      session_id: 会话ID (默认 default_session)
-      stage: 视图阶段 (1 为拓扑审查态，2 为工况参数填报态)
-    """
-    try:
-        ensure_web_server_running()
-        editor_url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/editor?session_id={session_id}&stage={stage}"
-        webbrowser.open(editor_url)
-        return json.dumps({
-            "status": "SUCCESS",
-            "editor_url": editor_url,
-            "message": f"已在浏览器中打开可视化流程编辑器: {editor_url}"
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
 
 def run_server():
-    """启动 MCP 服务"""
     mcp_server.run(transport="stdio")
 
 

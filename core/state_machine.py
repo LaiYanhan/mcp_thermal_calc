@@ -1,34 +1,32 @@
-"""
-State machine implementing the human-in-the-loop workflow from Image #2.
-"""
+"""分阶段人工确认、会话编辑及确定性计算的统一入口。"""
 
+import json
+from copy import deepcopy
+from dataclasses import asdict
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from hashlib import sha256
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
-from core.pipeline import Pipeline, pipeline_registry
-from core.formula import registry as default_formula_registry
+from core.pipeline import Pipeline, PipelineValidationError, pipeline_registry
+from core.formula import default_formula_registry
+from core.storage import read_json, write_json, record_path, synchronized
 
 
 class WorkflowState(str, Enum):
-    """工作流阶段状态枚举"""
-    INITIAL = "INITIAL"  # 初始态：等待输入数据与人类需求
-    SCENARIO_PROPOSED = "SCENARIO_PROPOSED"  # 场景提议态：AI匹配或新建场景，等待人工确认
-    SCENARIO_CONFIRMED = "SCENARIO_CONFIRMED"  # 场景确认态：人工已确认场景，进入输入变量匹配
-    PARAMETERS_INSPECTED = "PARAMETERS_INSPECTED"  # 参数检查态：已分析缺项并补全默认值，等待人工确认参数
-    PARAMETERS_CONFIRMED = "PARAMETERS_CONFIRMED"  # 参数确认态：人工已确认参数，授权执行程序计算
-    CALCULATED = "CALCULATED"  # 计算完成态：输出结构化结果
-    MODIFICATION_REQUESTED = "MODIFICATION_REQUESTED"  # 修改态：人类提出修改意见，AI根据反馈调整
+    INITIAL = "INITIAL"
+    SCENARIO_PROPOSED = "SCENARIO_PROPOSED"
+    SCENARIO_CONFIRMED = "SCENARIO_CONFIRMED"
+    PARAMETERS_INSPECTED = "PARAMETERS_INSPECTED"
+    PARAMETERS_CONFIRMED = "PARAMETERS_CONFIRMED"
+    CALCULATED = "CALCULATED"
+    MODIFICATION_REQUESTED = "MODIFICATION_REQUESTED"
 
 
 class StateTransitionError(Exception):
-    """状态转移非法异常"""
-    pass
+    """状态转移非法异常。"""
 
 
 class SessionState(BaseModel):
-    """
-    单个计算会话的完整上下文状态
-    """
     session_id: str
     current_state: WorkflowState = WorkflowState.INITIAL
     scenario_id: Optional[str] = None
@@ -37,259 +35,268 @@ class SessionState(BaseModel):
     is_new_scenario: bool = False
     new_scenario_draft: Optional[Dict[str, Any]] = None
     pipeline_data: Optional[Dict[str, Any]] = None
-
     user_requirements: str = ""
     provided_parameters: Dict[str, Any] = Field(default_factory=dict)
     inspected_parameters: Dict[str, Any] = Field(default_factory=dict)
-
     human_feedback: Optional[str] = None
     calculation_result: Optional[Dict[str, Any]] = None
+    scenario_signature: Optional[str] = None
+    parameter_signature: Optional[str] = None
+    modification_target: Optional[str] = None
 
 
 class WorkflowManager:
-    """
-    状态机会话控制器
-    """
     def __init__(self):
         self._sessions: Dict[str, SessionState] = {}
 
+    @synchronized
     def get_or_create_session(self, session_id: str) -> SessionState:
+        if not isinstance(session_id, str) or not session_id or len(session_id) > 200:
+            raise ValueError("会话 ID 不能为空或超过 200 个字符")
         if session_id not in self._sessions:
-            self._sessions[session_id] = SessionState(session_id=session_id)
+            saved = read_json(record_path("sessions", session_id))
+            session = SessionState.model_validate(saved) if saved else SessionState(session_id=session_id)
+            if saved and session.pipeline_data:
+                session.pipeline_data = Pipeline.from_dict(session.pipeline_data).to_dict()
+                # 恢复工程草稿，授权不跨进程恢复。
+                self._reset_confirmation(session)
+            self._sessions[session_id] = session
         return self._sessions[session_id]
 
-    def propose_existing_scenario(
-        self, session_id: str, scenario_id: str, user_requirements: str, initial_inputs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """AI 匹配到现有场景，进入场景待确认状态"""
-        session = self.get_or_create_session(session_id)
-        pipeline = pipeline_registry.get(scenario_id)
+    def _commit(self, session: SessionState) -> None:
+        write_json(record_path("sessions", session.session_id), session.model_dump(mode="json"))
+        self._sessions[session.session_id] = session
 
-        session.scenario_id = scenario_id
-        session.scenario_name = pipeline.name
-        session.scenario_description = pipeline.description
-        session.is_new_scenario = False
-        session.user_requirements = user_requirements
-        session.provided_parameters = initial_inputs
-        session.pipeline_data = pipeline.to_dict()
+    @staticmethod
+    def _reset_confirmation(session: SessionState) -> None:
         session.current_state = WorkflowState.SCENARIO_PROPOSED
-        return {
-            "session_id": session_id,
-            "status": session.current_state.value,
-            "action_required": "HUMAN_SCENARIO_CONFIRMATION",
-            "message": (
-                f"已为您的需求匹配到计算场景: 【{pipeline.name}】。\n"
-                f"场景说明: {pipeline.description}\n"
-                f"工程注意事项: {pipeline.notes}\n"
-                f"请人工核对并确认是否使用该场景（或提出修改意见）。"
-            ),
-            "scenario": {
-                "id": pipeline.id,
-                "name": pipeline.name,
-                "category": pipeline.category,
-                "description": pipeline.description,
-                "notes": pipeline.notes,
-                "required_inputs": [
-                    {
-                        "name": pin.name,
-                        "unit": pin.unit,
-                        "description": pin.description,
-                        "default": pin.default_value
-                    }
-                    for pin in pipeline.required_inputs
-                ]
-            }
-        }
+        session.scenario_signature = None
+        session.parameter_signature = None
+        session.inspected_parameters = {}
+        session.calculation_result = None
+        session.modification_target = None
 
-    def propose_new_scenario(
-        self, session_id: str, new_scenario_def: Dict[str, Any], user_requirements: str, initial_inputs: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """AI 自主分析计算流程，提议新场景管道草案，进入场景待确认状态"""
-        session = self.get_or_create_session(session_id)
+    @staticmethod
+    def _pipeline(session: SessionState) -> Pipeline:
+        if session.pipeline_data is None:
+            raise StateTransitionError("请先提议计算场景")
+        return Pipeline.from_dict(session.pipeline_data)
 
-        session.scenario_id = new_scenario_def.get("id", "custom_scenario")
-        session.scenario_name = new_scenario_def.get("name", "自定义扩展场景")
-        session.scenario_description = new_scenario_def.get("description", "")
-        session.is_new_scenario = True
-        session.new_scenario_draft = new_scenario_def
-        session.user_requirements = user_requirements
-        session.provided_parameters = initial_inputs
-        session.current_state = WorkflowState.SCENARIO_PROPOSED
+    def _signature(self, session: SessionState, include_parameters=False) -> str:
+        pipeline = self._pipeline(session)
+        data = pipeline.to_dict()
+        data.pop("layout", None)
+        operators = {step.formula_id: asdict(default_formula_registry.get(step.formula_id).metadata) for step in pipeline.steps}
+        payload = {"pipeline": data, "operators": operators}
+        if include_parameters:
+            payload["parameters"] = pipeline.inspect_inputs(session.provided_parameters)["filled_inputs"]
+        return sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
-        return {
-            "session_id": session_id,
-            "status": session.current_state.value,
-            "action_required": "HUMAN_SCENARIO_CONFIRMATION",
-            "message": (
-                f"未匹配到现有场景。AI 自主分析提议新计算流程: 【{session.scenario_name}】。\n"
-                f"场景设计逻辑: {session.scenario_description}\n"
-                f"包含节点数: {len(new_scenario_def.get('steps', []))}\n"
-                f"请人工严格审核该计算管道设计并确认（或提出修改意见）。"
-            ),
-            "scenario_draft": new_scenario_def
-        }
+    def _refresh(self, session: SessionState) -> SessionState:
+        if session.scenario_signature and session.scenario_signature != self._signature(session):
+            session = session.model_copy(deep=True)
+            self._reset_confirmation(session)
+            self._commit(session)
+        return session
 
+    @staticmethod
+    def _check_confirmation(confirmed):
+        if type(confirmed) is not bool:
+            raise ValueError("confirmed 必须显式填写 true 或 false")
+
+    def _propose(self, session_id, pipeline, requirements, inputs, is_new=False):
+        self.get_or_create_session(session_id)
+        pipeline.validated_steps()
+        pipeline.inspect_inputs(inputs)
+        session = SessionState(
+            session_id=session_id, current_state=WorkflowState.SCENARIO_PROPOSED,
+            scenario_id=pipeline.id, scenario_name=pipeline.name, scenario_description=pipeline.description,
+            pipeline_data=pipeline.to_dict(), user_requirements=requirements,
+            provided_parameters=deepcopy(inputs), is_new_scenario=is_new,
+            new_scenario_draft=pipeline.to_dict() if is_new else None,
+        )
+        self._commit(session)
+        return {"session_id": session_id, "status": session.current_state.value,
+                "action_required": "HUMAN_SCENARIO_CONFIRMATION",
+                "message": f"请人工核对并确认计算场景：【{pipeline.name}】。",
+                "scenario": pipeline.to_dict()}
+
+    @synchronized
+    def propose_existing_scenario(self, session_id: str, scenario_id: str, user_requirements: str, initial_inputs: Dict[str, Any]) -> Dict[str, Any]:
+        return self._propose(session_id, pipeline_registry.get(scenario_id), user_requirements, initial_inputs)
+
+    @synchronized
+    def propose_new_scenario(self, session_id: str, new_scenario_def: Dict[str, Any], user_requirements: str, initial_inputs: Dict[str, Any]) -> Dict[str, Any]:
+        return self._propose(session_id, Pipeline.from_dict(new_scenario_def), user_requirements, initial_inputs, True)
+
+    @synchronized
     def confirm_scenario(self, session_id: str, confirmed: bool, feedback: str = "") -> Dict[str, Any]:
-        """人类确认或打回场景"""
-        session = self.get_or_create_session(session_id)
-        if session.current_state not in (WorkflowState.SCENARIO_PROPOSED, WorkflowState.MODIFICATION_REQUESTED):
-            raise StateTransitionError(
-                f"当前状态为 {session.current_state.value}，不可进行场景确认。前置操作必须为提议场景。"
-            )
-
-        if not confirmed:
-            session.current_state = WorkflowState.MODIFICATION_REQUESTED
-            session.human_feedback = feedback
-            return {
-                "session_id": session_id,
-                "status": session.current_state.value,
-                "action_required": "AI_MODIFY_SCENARIO",
-                "message": f"人工未认可当前场景。反馈意见: '{feedback}'。请 AI 根据反馈调整场景并重新提议。"
-            }
-
-        session.current_state = WorkflowState.SCENARIO_CONFIRMED
-        session.human_feedback = None
-        return {
-            "session_id": session_id,
-            "status": session.current_state.value,
-            "action_required": "INSPECT_PARAMETERS",
-            "message": f"人工已确认场景【{session.scenario_name}】。已解锁参数匹配阶段，请调用参数检查工具。"
-        }
-
-    def inspect_parameters(self, session_id: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """参数匹配与缺项检查"""
-        session = self.get_or_create_session(session_id)
-        if session.current_state not in (WorkflowState.SCENARIO_CONFIRMED, WorkflowState.PARAMETERS_INSPECTED):
-            raise StateTransitionError(
-                f"当前状态为 {session.current_state.value}，必须先完成场景确认（SCENARIO_CONFIRMED）才能检查参数。"
-            )
-
-        if parameters:
-            session.provided_parameters.update(parameters)
-
-        pipeline = pipeline_registry.get(session.scenario_id)
-        inspection = pipeline.inspect_inputs(session.provided_parameters)
-        session.inspected_parameters = inspection
-        session.current_state = WorkflowState.PARAMETERS_INSPECTED
-
-        if not inspection["is_complete"]:
-            return {
-                "session_id": session_id,
-                "status": session.current_state.value,
-                "action_required": "PROVIDE_MISSING_PARAMETERS",
-                "is_complete": False,
-                "message": "检测到必需输入参数存在缺失，已分析缺项如下，请人工补充输入：",
-                "missing_inputs": inspection["missing_inputs"],
-                "defaults_applied": inspection["defaults_applied"],
-                "filled_inputs": inspection["filled_inputs"]
-            }
-
-        return {
-            "session_id": session_id,
-            "status": session.current_state.value,
-            "action_required": "HUMAN_PARAMETER_CONFIRMATION",
-            "is_complete": True,
-            "message": (
-                "所有必需输入参数已明确（含工程基准默认值）。\n"
-                "请人工确认以下输入参数清单，确认无误后授权计算；如需修改请提出意见。"
-            ),
-            "parameters_summary": inspection["filled_inputs"],
-            "defaults_applied": inspection["defaults_applied"]
-        }
-
-    def confirm_parameters(self, session_id: str, confirmed: bool, feedback: str = "") -> Dict[str, Any]:
-        """人类确认或修改参数"""
-        session = self.get_or_create_session(session_id)
-        if session.current_state != WorkflowState.PARAMETERS_INSPECTED:
-            raise StateTransitionError(
-                f"当前状态为 {session.current_state.value}，必须先执行参数检查（PARAMETERS_INSPECTED）后才能确认参数。"
-            )
-
-        if not confirmed:
-            session.current_state = WorkflowState.MODIFICATION_REQUESTED
-            session.human_feedback = feedback
-            return {
-                "session_id": session_id,
-                "status": session.current_state.value,
-                "action_required": "AI_MODIFY_PARAMETERS",
-                "message": f"人工对输入参数提出修改意见: '{feedback}'。请更新参数并重新检查确认。"
-            }
-
-        session.current_state = WorkflowState.PARAMETERS_CONFIRMED
-        session.human_feedback = None
-        return {
-            "session_id": session_id,
-            "status": session.current_state.value,
-            "action_required": "EXECUTE_CALCULATION",
-            "message": "人工已确认所有参数！已正式授权执行确定性计算程序。"
-        }
-
-    def execute_calculation(self, session_id: str) -> Dict[str, Any]:
-        """
-        核心计算执行（强守卫拦截）
-        """
-        session = self.get_or_create_session(session_id)
-        # 严苛拦截：必须处于 PARAMETERS_CONFIRMED 态
-        if session.current_state != WorkflowState.PARAMETERS_CONFIRMED:
-            raise StateTransitionError(
-                f"【安全拦截】当前会话处于 {session.current_state.value} 状态，未经人工确认授权，"
-                f"计算引擎坚决拒绝执行！合法流转必须为: SCENARIO_CONFIRMED -> PARAMETERS_CONFIRMED -> 执行计算。"
-            )
-
-        if session.pipeline_data:
-            pipeline = Pipeline.from_dict(session.pipeline_data)
+        self._check_confirmation(confirmed)
+        current = self._refresh(self.get_or_create_session(session_id))
+        if current.current_state not in (WorkflowState.SCENARIO_PROPOSED, WorkflowState.MODIFICATION_REQUESTED):
+            raise StateTransitionError("必须先提议场景，才能进行场景确认")
+        session = current.model_copy(deep=True)
+        if confirmed:
+            self._pipeline(session).validated_steps()
+            session.scenario_signature = self._signature(session)
+            session.current_state = WorkflowState.SCENARIO_CONFIRMED
+            session.modification_target = None
         else:
-            pipeline = pipeline_registry.get(session.scenario_id)
-        result = pipeline.execute(session.provided_parameters, default_formula_registry)
+            self._reset_confirmation(session)
+            session.current_state = WorkflowState.MODIFICATION_REQUESTED
+            session.modification_target = "scenario"
+        session.human_feedback = feedback or None
+        self._commit(session)
+        return {"session_id": session_id, "status": session.current_state.value,
+                "action_required": "INSPECT_PARAMETERS" if confirmed else "AI_MODIFY_SCENARIO",
+                "message": "场景已确认，请检查参数" if confirmed else "请修改场景并重新提议"}
 
+    @synchronized
+    def inspect_parameters(self, session_id: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        current = self._refresh(self.get_or_create_session(session_id))
+        if not current.scenario_signature:
+            raise StateTransitionError("必须先完成场景确认（SCENARIO_CONFIRMED）才能检查参数")
+        session = current.model_copy(deep=True)
+        candidate = {**session.provided_parameters, **(parameters or {})}
+        pipeline = self._pipeline(session)
+        pipeline.validated_steps()
+        inspection = pipeline.inspect_inputs(candidate)
+        # 校验全部成功后才提交；任何错误均不修改原会话。
+        session.provided_parameters = candidate
+        session.inspected_parameters = inspection
+        session.parameter_signature = None
+        session.calculation_result = None
+        session.current_state = WorkflowState.PARAMETERS_INSPECTED
+        session.modification_target = None
+        self._commit(session)
+        return {"session_id": session_id, "status": session.current_state.value,
+                "action_required": "HUMAN_PARAMETER_CONFIRMATION" if inspection["is_complete"] else "PROVIDE_MISSING_PARAMETERS",
+                "message": "请人工核对参数并确认" if inspection["is_complete"] else "请补齐缺失参数",
+                "parameters_summary": inspection["filled_inputs"], **inspection}
+
+    @synchronized
+    def confirm_parameters(self, session_id: str, confirmed: bool, feedback: str = "") -> Dict[str, Any]:
+        self._check_confirmation(confirmed)
+        current = self._refresh(self.get_or_create_session(session_id))
+        if current.current_state != WorkflowState.PARAMETERS_INSPECTED:
+            raise StateTransitionError("必须先执行参数检查（PARAMETERS_INSPECTED）后才能确认参数")
+        session = current.model_copy(deep=True)
+        if confirmed:
+            inspection = self._pipeline(session).inspect_inputs(session.provided_parameters)
+            if not inspection["is_complete"] or inspection != session.inspected_parameters:
+                raise StateTransitionError("参数缺失或已变化，请重新检查")
+            session.parameter_signature = self._signature(session, True)
+            session.current_state = WorkflowState.PARAMETERS_CONFIRMED
+        else:
+            session.current_state = WorkflowState.MODIFICATION_REQUESTED
+            session.modification_target = "parameters"
+            session.parameter_signature = None
+        session.human_feedback = feedback or None
+        self._commit(session)
+        return {"session_id": session_id, "status": session.current_state.value,
+                "action_required": "EXECUTE_CALCULATION" if confirmed else "AI_MODIFY_PARAMETERS",
+                "message": "参数已确认，允许执行计算" if confirmed else "请修改参数并重新检查"}
+
+    def _check_calculation_authorization(self, session):
+        if not session.parameter_signature or session.parameter_signature != self._signature(session, True):
+            raise StateTransitionError("未经人工确认授权，或已确认的数据已变化，计算引擎拒绝执行")
+
+    @synchronized
+    def execute_calculation(self, session_id: str) -> Dict[str, Any]:
+        current = self._refresh(self.get_or_create_session(session_id))
+        if current.current_state != WorkflowState.PARAMETERS_CONFIRMED:
+            raise StateTransitionError("未经人工确认授权，计算引擎拒绝执行；请先确认场景和参数")
+        self._check_calculation_authorization(current)
+        result = self._pipeline(current).execute(current.inspected_parameters["filled_inputs"], default_formula_registry)
+        session = current.model_copy(deep=True)
         session.current_state = WorkflowState.CALCULATED
         session.calculation_result = result.model_dump()
+        self._commit(session)
+        return {"session_id": session_id, "status": session.current_state.value,
+                "action_required": "PRESENT_STRUCTURED_RESULTS", "message": "计算完成",
+                "result": session.calculation_result}
 
-        return {
-            "session_id": session_id,
-            "status": session.current_state.value,
-            "action_required": "PRESENT_STRUCTURED_RESULTS",
-            "message": "计算完成！已生成确定性结构化工程测算结果。",
-            "result": session.calculation_result
-        }
+    @synchronized
+    def solve_atomic_formula(self, session_id, formula_id, known_variables, target_variable):
+        session = self._refresh(self.get_or_create_session(session_id))
+        if session.current_state not in (WorkflowState.PARAMETERS_CONFIRMED, WorkflowState.CALCULATED):
+            raise StateTransitionError("单公式求解同样需要先确认场景和参数")
+        self._check_calculation_authorization(session)
+        pipeline = self._pipeline(session)
+        steps = [step for step in pipeline.steps if step.formula_id == formula_id]
+        if not steps:
+            raise ValueError("只能求解已确认流水线中的算子")
+        result = session.calculation_result
+        if result is None:
+            result = pipeline.execute(session.inspected_parameters["filled_inputs"]).model_dump()
+        context = {**result["initial_inputs"], **result["final_outputs"]}
+        if not any(all(name in {**step.input_map, **step.output_map} and
+                       context[{**step.input_map, **step.output_map}[name]] == value
+                       for name, value in known_variables.items()) for step in steps):
+            raise StateTransitionError("求解使用的已知值不属于当前已确认工况")
+        formula = default_formula_registry.get(formula_id)
+        value = formula.solve(known_variables, target_variable)
+        pin = {**formula.input_pins, **formula.output_pins}[target_variable]
+        return {"formula_id": formula_id, "formula_name": formula.metadata.name,
+                "target_variable": target_variable, "target_description": pin.description,
+                "calculated_value": value, "unit": pin.unit}
 
+    @synchronized
     def get_session_view(self, session_id: str) -> Dict[str, Any]:
-        """获取用于前端可视化渲染的完整会话数据模型"""
-        session = self.get_or_create_session(session_id)
-        if not session.pipeline_data and session.scenario_id:
-            try:
-                p = pipeline_registry.get(session.scenario_id)
-                session.pipeline_data = p.to_dict()
-            except KeyError:
-                pass
+        session = self._refresh(self.get_or_create_session(session_id))
+        pipeline = self._pipeline(session) if session.pipeline_data else None
+        variables = {}
+        if pipeline:
+            variables.update({pin.name: asdict(pin) for pin in pipeline.required_inputs})
+            for step in pipeline.steps:
+                formula = default_formula_registry.get(step.formula_id)
+                _, output_pins = formula.pin_contract(step.solve_target)
+                for name, variable in step.output_map.items():
+                    if name in output_pins:
+                        variables[variable] = {**asdict(output_pins[name]), "name": variable}
+        return deepcopy({"session_id": session_id, "current_state": session.current_state.value,
+                         "scenario_id": session.scenario_id, "scenario_name": session.scenario_name,
+                         "scenario_description": session.scenario_description, "pipeline": pipeline.to_dict() if pipeline else None,
+                         "provided_parameters": session.provided_parameters,
+                         "inspected_parameters": session.inspected_parameters,
+                         "calculation_result": session.calculation_result,
+                         "formulas": default_formula_registry.to_ai_catalog(), "variables": variables,
+                         "validation": pipeline.validate() if pipeline else None})
 
-        return {
-            "session_id": session.session_id,
-            "current_state": session.current_state.value,
-            "scenario_id": session.scenario_id,
-            "scenario_name": session.scenario_name,
-            "scenario_description": session.scenario_description,
-            "pipeline": session.pipeline_data,
-            "provided_parameters": session.provided_parameters,
-            "inspected_parameters": session.inspected_parameters,
-            "calculation_result": session.calculation_result,
-            "formulas": default_formula_registry.to_ai_catalog(),
-        }
-
-    def update_pipeline_in_session(self, session_id: str, new_pipeline_dict: Dict[str, Any]) -> None:
-        """前端修改流水线拓扑后同步保存"""
-        session = self.get_or_create_session(session_id)
-        session.pipeline_data = new_pipeline_dict
-        if "name" in new_pipeline_dict:
-            session.scenario_name = new_pipeline_dict["name"]
-        if "description" in new_pipeline_dict:
-            session.scenario_description = new_pipeline_dict["description"]
+    @synchronized
+    def update_pipeline_in_session(self, session_id: str, new_pipeline_dict: Dict[str, Any], allow_incomplete: bool = False):
+        current = self.get_or_create_session(session_id)
+        pipeline = Pipeline.from_dict(new_pipeline_dict)
+        validation = pipeline.validate()
+        fatal = [item for item in validation["errors"] if item["code"] not in ("missing_source", "missing_output")]
+        if fatal or (not allow_incomplete and not validation["is_valid"]):
+            raise PipelineValidationError(fatal or validation["errors"])
+        session = current.model_copy(deep=True)
+        session.pipeline_data = pipeline.to_dict()
+        session.scenario_id = pipeline.id
+        session.scenario_name = pipeline.name
+        session.scenario_description = pipeline.description
+        before = deepcopy(current.pipeline_data or {})
+        after = deepcopy(session.pipeline_data)
+        before.pop("layout", None)
+        after.pop("layout", None)
+        if before != after:
+            allowed = {pin.name for pin in pipeline.required_inputs}
+            session.provided_parameters = {key: value for key, value in session.provided_parameters.items() if key in allowed}
+            self._reset_confirmation(session)
+        self._commit(session)
+        return validation
 
     def update_parameters_in_session(self, session_id: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """前端修改参数后同步保存并重新检查"""
-        session = self.get_or_create_session(session_id)
-        session.provided_parameters.update(parameters)
-        return self.inspect_parameters(session_id)
+        return self.inspect_parameters(session_id, parameters)
+
+    @synchronized
+    def invalidate_formula(self, formula_id: str) -> None:
+        for session in list(self._sessions.values()):
+            if session.pipeline_data and any(step["formula_id"] == formula_id for step in session.pipeline_data["steps"]):
+                candidate = session.model_copy(deep=True)
+                self._reset_confirmation(candidate)
+                self._commit(candidate)
 
 
 workflow_manager = WorkflowManager()
