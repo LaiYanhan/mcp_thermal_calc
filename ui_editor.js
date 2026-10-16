@@ -130,7 +130,7 @@ function makeStep(pipeline, formula, variables, anchorId, mode) {
 
 let sessionView, selectedStepId = null, drawerPipeline = null, activeStage = 1;
 let insertionMode = "after", insertionAnchor = null, panX = 0, panY = 0, busy = false;
-let mutationQueue = Promise.resolve(), wireFrame = null, drag = null;
+let mutationQueue = Promise.resolve(), wireFrame = null, drag = null, highlightedNode = null;
 let pendingParameters = {};
 const $ = id => document.getElementById(id);
 const sessionId = typeof location === "undefined" ? "" : new URLSearchParams(location.search).get("session_id") || "default";
@@ -215,14 +215,129 @@ function handlePrimaryAction() {
 const formatValue = value => typeof value === "number" && Number.isFinite(value)
   ? value.toLocaleString("zh-CN", {maximumFractionDigits: 4, useGrouping: false}) : "—";
 function pinRow(pin, variable, direction, value) {
-  return `<div class="flex justify-between gap-2 py-1 relative" data-${direction}="${escapeHtml(variable)}">
-    <span class="text-slate-600 break-words">${escapeHtml(pin?.description || variable)}</span>
-    <span class="font-mono text-right shrink-0 ${direction === 'out' ? 'text-softPin-outText' : ''}"><b data-value="${escapeHtml(variable)}">${formatValue(value)}</b> <small>${escapeHtml(pin?.unit)}</small></span></div>`;
+  return `<div class="flex justify-between items-center gap-2 py-0.5 relative group" data-${direction}="${escapeHtml(variable)}">
+    <span class="text-slate-600 break-words text-[11px]">${escapeHtml(pin?.description || variable)}</span>
+    <span class="font-mono text-right shrink-0 text-xs ${direction === 'out' ? 'text-softPin-outText font-black' : 'text-slate-800'}">
+      <b data-value="${escapeHtml(variable)}">${formatValue(value)}</b> <small class="text-slate-400 font-normal">${escapeHtml(pin?.unit)}</small>
+    </span></div>`;
 }
-function card(key, title, color, content, extra = "") {
-  return `<section data-node="${escapeHtml(key)}" class="flow-node-box absolute w-[260px] rounded-lg overflow-visible ${extra}">
-    <div class="px-4 py-2.5 rounded-t-lg text-xs font-black border-b ${color}">${escapeHtml(title)}</div>
-    <div class="px-4 py-3 text-[11px] space-y-1">${content}</div></section>`;
+
+function renderConstantCard(pin, value, canEdit, extra = "") {
+  return `<section data-node="input:${escapeHtml(pin.name)}" class="flow-node-box node-constant absolute p-1.5 ${extra}">
+    <div class="flex items-center justify-between pb-0.5 mb-1 border-b border-amber-200/60">
+      <span class="text-[11px] font-black text-softPin-constText truncate" title="${escapeHtml(pin.description)}">${escapeHtml(pin.description)}</span>
+      <span class="w-1.5 h-1.5 rounded-full bg-softPin-constDot shrink-0"></span>
+    </div>
+    <div data-out="${escapeHtml(pin.name)}" class="flex items-center gap-1 font-mono">
+      <input data-parameter="${escapeHtml(pin.name)}" aria-label="${escapeHtml(pin.description)}" type="number" step="any" value="${escapeHtml(value)}" ${canEdit ? "" : "disabled"} class="w-full min-w-0 px-1 py-0.5 text-right border border-softPin-constBorder rounded text-xs bg-white text-softPin-constText font-black disabled:bg-amber-50/50 focus:outline-none focus:ring-1 focus:ring-amber-400">
+      <span class="shrink-0 text-[10px] text-amber-900 font-bold">${escapeHtml(pin.unit)}</span>
+    </div>
+  </section>`;
+}
+
+function renderInputCard(pin, value, canEdit, extra = "") {
+  return `<section data-node="input:${escapeHtml(pin.name)}" class="flow-node-box node-input absolute p-1.5 ${extra}">
+    <div class="flex items-center justify-between pb-0.5 mb-1 border-b border-green-200/60">
+      <span class="text-[11px] font-black text-softPin-inText truncate" title="${escapeHtml(pin.description)}">${escapeHtml(pin.description)}</span>
+      <span class="w-1.5 h-1.5 rounded-full bg-softPin-inDot shrink-0"></span>
+    </div>
+    <div data-out="${escapeHtml(pin.name)}" class="flex items-center gap-1 font-mono">
+      <input data-parameter="${escapeHtml(pin.name)}" aria-label="${escapeHtml(pin.description)}" type="number" step="any" value="${escapeHtml(value)}" ${canEdit ? "" : "disabled"} class="w-full min-w-0 px-1 py-0.5 text-right border border-softPin-inBorder rounded text-xs bg-white text-softPin-inText font-black disabled:bg-green-50/50 focus:outline-none focus:ring-1 focus:ring-green-400">
+      <span class="shrink-0 text-[10px] text-emerald-900 font-bold">${escapeHtml(pin.unit)}</span>
+    </div>
+  </section>`;
+}
+
+function renderStepCard(step, formula, pins, expression, result, isSelected) {
+  const rows = pins.inputs.map(pin => pinRow(pin, step.input_map[pin.name], "in", result[step.input_map[pin.name]])).join("");
+  const outputs = pins.outputs.map(pin => pinRow(pin, step.output_map[pin.name], "out", result[step.output_map[pin.name]])).join("");
+  return `<section data-node="step:${escapeHtml(step.step_id)}" class="flow-node-box node-step absolute rounded-lg overflow-visible ${isSelected ? "selected" : ""}">
+    <div class="px-3 py-2 rounded-t-lg text-xs font-black border-b bg-softPin-opBg text-softPin-opText border-softPin-opBorder flex items-center justify-between">
+      <span class="truncate">${escapeHtml(formula.name)}</span>
+      <span class="w-2 h-2 rounded-full bg-softPin-opDot shrink-0"></span>
+    </div>
+    <div class="p-3 text-[11px] space-y-2 bg-white rounded-b-lg">
+      ${expression ? `<div data-formula class="font-mono text-[10.5px] text-blue-900 bg-blue-50/70 border border-blue-100 rounded px-2 py-1 break-words leading-relaxed">${escapeHtml(expression)}</div>` : ''}
+      ${rows ? `<div class="space-y-0.5">${rows}</div>` : ''}
+      ${outputs ? `<div class="border-t border-dashed border-purple-200 pt-1.5 space-y-0.5">${outputs}</div>` : ''}
+    </div>
+  </section>`;
+}
+
+function computePlan2Layout(pipeline) {
+  const layout = {};
+  const placedInputs = new Set();
+  const columnWidth = 320;
+  const startX = 40;
+
+  const mainXMap = {
+    "step_1_steam_enthalpy": 0, "step_2_water_enthalpy": 0, "step_3_enthalpy_diff": 1,
+    "step_4_theoretical_power": 2, "step_5_sgs_power": 3, "step_6_steam_heat_supply": 4,
+    "step_7_thermal_storage_capacity": 5, "step_8_electric_heater_power": 6, "step_9_molten_salt_mass": 7
+  };
+
+  let customIdx = 0;
+  pipeline.steps.forEach(step => {
+    const sid = step.step_id;
+    if (sid === "step_1_steam_enthalpy") {
+      layout[`step:${sid}`] = { left: startX, top: 120 };
+    } else if (sid === "step_2_water_enthalpy") {
+      layout[`step:${sid}`] = { left: startX, top: 290 };
+    } else if (mainXMap[sid] !== undefined) {
+      layout[`step:${sid}`] = { left: startX + mainXMap[sid] * columnWidth, top: 200 };
+    } else if (sid === "step_10_sgs_sizing") {
+      layout[`step:${sid}`] = { left: startX + 3 * columnWidth, top: 440 };
+    } else if (sid === "step_11_heater_sizing") {
+      layout[`step:${sid}`] = { left: startX + 6 * columnWidth, top: 440 };
+    } else if (sid === "step_12_transformer_sizing") {
+      layout[`step:${sid}`] = { left: startX + 7 * columnWidth, top: 440 };
+    } else if (sid === "step_13_salt_mass_roundup") {
+      layout[`step:${sid}`] = { left: startX + 8 * columnWidth, top: 440 };
+    } else if (sid === "step_16_daily_steam_production") {
+      layout[`step:${sid}`] = { left: startX + 2 * columnWidth, top: 440 };
+    } else if (sid === "step_17_annual_steam_production") {
+      layout[`step:${sid}`] = { left: startX + 2 * columnWidth, top: 660 };
+    } else if (sid === "step_19_daily_steam_revenue") {
+      layout[`step:${sid}`] = { left: startX + 3 * columnWidth, top: 660 };
+    } else if (sid === "step_14_daily_electricity") {
+      layout[`step:${sid}`] = { left: startX + 5 * columnWidth, top: 660 };
+    } else if (sid === "step_15_annual_electricity") {
+      layout[`step:${sid}`] = { left: startX + 6 * columnWidth, top: 660 };
+    } else if (sid === "step_18_daily_electricity_cost") {
+      layout[`step:${sid}`] = { left: startX + 7 * columnWidth, top: 660 };
+    } else if (sid === "step_20_daily_operating_spread") {
+      layout[`step:${sid}`] = { left: startX + 8 * columnWidth, top: 660 };
+    } else if (sid === "step_21_annual_operating_spread") {
+      layout[`step:${sid}`] = { left: startX + 9 * columnWidth, top: 660 };
+    } else {
+      layout[`step:${sid}`] = { left: startX + (10 + customIdx++) * columnWidth, top: 200 };
+    }
+
+    const inputsForStep = Object.values(step.input_map).filter(varName => 
+      pipeline.required_inputs.some(p => p.name === varName) && !placedInputs.has(varName)
+    );
+
+    inputsForStep.forEach((varName, inIdx) => {
+      placedInputs.add(varName);
+      const stepPos = layout[`step:${sid}`];
+      const colOffset = (inIdx % 2) * 136;
+      const rowOffset = Math.floor(inIdx / 2) * 52;
+      layout[`input:${varName}`] = {
+        left: stepPos.left + colOffset,
+        top: Math.max(20, stepPos.top - 60 - rowOffset)
+      };
+    });
+  });
+
+  let unplacedIdx = 0;
+  pipeline.required_inputs.forEach(pin => {
+    if (!placedInputs.has(pin.name)) {
+      layout[`input:${pin.name}`] = { left: startX + unplacedIdx * 136, top: 20 };
+      unplacedIdx++;
+    }
+  });
+
+  return layout;
 }
 
 function renderGraph() {
@@ -231,37 +346,45 @@ function renderGraph() {
   const parameters = sessionView.inspected_parameters.filled_inputs || {};
   const canEdit = activeStage === 2 && !needsScenario();
   const html = [];
+
   for (const pin of pipeline.required_inputs) {
     const raw = pendingParameters[pin.name] ?? sessionView.provided_parameters[pin.name];
     const value = Object.hasOwn(pendingParameters, pin.name) ? pendingParameters[pin.name] ?? "" :
       parameters[pin.name] ?? (raw && typeof raw === "object" ? raw.value : raw) ?? pin.default_value ?? "";
-    html.push(card(`input:${pin.name}`, pin.description, pin.kind === "constant" ? "bg-softPin-constBg text-softPin-constText border-softPin-constBorder" : "bg-softPin-inBg text-softPin-inText border-softPin-inBorder",
-      `<div class="font-mono text-slate-500 break-all">${escapeHtml(pin.name)}</div><div data-out="${escapeHtml(pin.name)}" class="flex items-center gap-2"><input data-parameter="${escapeHtml(pin.name)}" aria-label="${escapeHtml(pin.description)}" type="number" step="any" value="${escapeHtml(value)}" ${canEdit ? "" : "disabled"} class="w-full min-w-0 p-1.5 border rounded font-mono text-sm bg-white disabled:bg-slate-50"><span class="shrink-0">${escapeHtml(pin.unit)}</span></div>`));
+    html.push(pin.kind === "constant" ? renderConstantCard(pin, value, canEdit) : renderInputCard(pin, value, canEdit));
   }
+
   for (const step of pipeline.steps) {
     const formula = formulaById(step.formula_id);
     const pins = effectivePins(formula, step);
-    const rows = pins.inputs.map(pin => pinRow(pin, step.input_map[pin.name], "in", result[step.input_map[pin.name]])).join("");
-    const outputs = pins.outputs.map(pin => pinRow(pin, step.output_map[pin.name], "out", result[step.output_map[pin.name]])).join("");
     const expression = formula.display_expressions?.[step.solve_target || formula.default_target] || "";
-    html.push(card(`step:${step.step_id}`, formula.name, "bg-softPin-opBg text-softPin-opText border-softPin-opBorder",
-      `${expression ? `<div data-formula class="text-blue-800 break-words leading-relaxed pb-2">${escapeHtml(expression)}</div>` : ''}${rows}<div class="border-t border-dashed border-blue-200 pt-1">${outputs}</div>`, selectedStepId === step.step_id ? "selected" : ""));
+    html.push(renderStepCard(step, formula, pins, expression, result, selectedStepId === step.step_id));
   }
+
   $("node-layer").innerHTML = html.join("");
+  const defaultLayout = computePlan2Layout(pipeline);
   const nodes = [...$("node-layer").children];
-  const columns = Math.max(2, Math.floor(($("canvas-container").clientWidth - 80) / 330));
-  let top = 0;
-  for (let i = 0; i < nodes.length; i += columns) {
-    const row = nodes.slice(i, i + columns), reverse = Math.floor(i / columns) % 2 === 1;
-    row.forEach((node, index) => {
-      const position = pipeline.layout[node.dataset.node] || {left: (reverse ? columns - index - 1 : index) * 330, top};
-      node.style.left = position.left + "px"; node.style.top = position.top + "px";
-    });
-    top += Math.max(...row.map(node => node.offsetHeight)) + 100;
-  }
-  $("dag-workspace").style.height = top + "px";
-  $("dag-workspace").style.width = columns * 330 + "px";
+  let maxRight = 1200, maxBottom = 800;
+
+  nodes.forEach(node => {
+    const key = node.dataset.node;
+    const savedPos = pipeline.layout[key];
+    const defaultPos = defaultLayout[key] || { left: 40, top: 200 };
+
+    const left = savedPos ? savedPos.left : defaultPos.left;
+    const top = savedPos ? savedPos.top : defaultPos.top;
+
+    node.style.left = left + "px";
+    node.style.top = top + "px";
+
+    maxRight = Math.max(maxRight, left + 340);
+    maxBottom = Math.max(maxBottom, top + 260);
+  });
+
+  $("dag-workspace").style.width = maxRight + "px";
+  $("dag-workspace").style.height = maxBottom + "px";
   $("dag-workspace").style.transform = `translate(${panX}px, ${panY}px)`;
+
   $("tab-stage-1").classList.toggle("bg-white", activeStage === 1);
   $("tab-stage-2").classList.toggle("bg-white", activeStage === 2);
   $("stage-desc-hint").textContent = activeStage === 1 ? "流程拓扑审核" : "参数核对与计算结果";
@@ -273,39 +396,75 @@ function scheduleWires() {
   if (wireFrame !== null) cancelAnimationFrame(wireFrame);
   wireFrame = requestAnimationFrame(() => { wireFrame = null; drawWires(); });
 }
+
 function drawWires() {
   const workspace = $("dag-workspace").getBoundingClientRect(), nodes = [...$("node-layer").children];
-  const rectangles = nodes.map(node => {
-    const r = node.getBoundingClientRect();
-    return {left: r.left - workspace.left - 8, right: r.right - workspace.left + 8, top: r.top - workspace.top - 8, bottom: r.bottom - workspace.top + 8};
-  });
   const producers = new Map();
   for (const node of nodes) for (const port of node.querySelectorAll("[data-out]")) producers.set(port.dataset.out, {node, port});
   const paths = [];
+
   for (const node of nodes) for (const port of node.querySelectorAll("[data-in]")) {
-    const source = producers.get(port.dataset.in);
+    const varName = port.dataset.in;
+    const source = producers.get(varName);
     port.classList.toggle("text-red-700", !source);
     port.title = source ? "" : "待连接输入来源";
     if (!source) continue;
-    const a = source.node.getBoundingClientRect(), b = node.getBoundingClientRect();
-    const pa = source.port.getBoundingClientRect(), pb = port.getBoundingClientRect();
-    const from = {x: a.right - workspace.left, y: (pa.top + pa.bottom) / 2 - workspace.top};
-    const to = {x: b.left - workspace.left, y: (pb.top + pb.bottom) / 2 - workspace.top};
-    const route = routeWire({x: from.x + 16, y: from.y}, {x: to.x - 16, y: to.y}, rectangles);
-    const blockedPort = rectangles.some((r, index) => {
-      const crosses = (start, end) => start.y > r.top + 8 && start.y < r.bottom - 8 &&
-        Math.max(start.x, end.x) > r.left + 8 && Math.min(start.x, end.x) < r.right - 8;
-      return (nodes[index] !== source.node && crosses(from, {x: from.x + 16, y: from.y})) ||
-        (nodes[index] !== node && crosses({x: to.x - 16, y: to.y}, to));
-    });
-    if (!route.length || blockedPort) {
-      port.classList.add("text-red-700"); port.title = "卡片遮挡连线通道，请移开重叠卡片";
-      continue;
+
+    const sourceKey = source.node.dataset.node;
+    const targetKey = node.dataset.node;
+
+    const pa = source.port.getBoundingClientRect();
+    const pb = port.getBoundingClientRect();
+    const na = source.node.getBoundingClientRect();
+    const nb = node.getBoundingClientRect();
+
+    const from = { x: na.right - workspace.left, y: (pa.top + pa.bottom) / 2 - workspace.top };
+    const to = { x: nb.left - workspace.left, y: (pb.top + pb.bottom) / 2 - workspace.top };
+
+    let wireType = "wire-step";
+    let markerId = "arrow-step";
+    if (sourceKey.startsWith("input:")) {
+      const isConst = source.node.classList.contains("node-constant");
+      wireType = isConst ? "wire-constant" : "wire-input";
+      markerId = isConst ? "arrow-const" : "arrow-input";
     }
-    const points = [from, ...route, to];
-    paths.push(`<path class="wire-line" data-wire="${escapeHtml(port.dataset.in)}" d="${points.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ")}"/>`);
+
+    let activeClass = "";
+    if (highlightedNode) {
+      const isConnected = (sourceKey === highlightedNode.key || targetKey === highlightedNode.key);
+      if (isConnected) {
+        activeClass = "wire-highlight";
+        markerId = "arrow-highlight";
+      } else {
+        activeClass = "wire-dimmed";
+      }
+    }
+
+    let d = "";
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+
+    if (dx > 20) {
+      const curvature = Math.max(35, Math.min(160, dx * 0.42));
+      d = `M ${from.x} ${from.y} C ${from.x + curvature} ${from.y}, ${to.x - curvature} ${to.y}, ${to.x} ${to.y}`;
+    } else {
+      const offsetX = 35;
+      const midY = (from.y + to.y) / 2;
+      d = `M ${from.x} ${from.y} C ${from.x + offsetX} ${from.y}, ${from.x + offsetX} ${midY}, ${(from.x + to.x) / 2} ${midY} S ${to.x - offsetX} ${to.y}, ${to.x} ${to.y}`;
+    }
+
+    paths.push(`<path class="wire-base ${wireType} ${activeClass}" data-from="${escapeHtml(sourceKey)}" data-to="${escapeHtml(targetKey)}" data-wire="${escapeHtml(varName)}" d="${d}" marker-end="url(#${markerId})"/>`);
   }
-  $("svg-wiring-layer").innerHTML = paths.join("");
+
+  const defs = $("svg-wiring-layer").querySelector("defs")?.outerHTML || `
+    <defs>
+      <marker id="arrow-step" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/></marker>
+      <marker id="arrow-input" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#16A34A"/></marker>
+      <marker id="arrow-const" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#D97706"/></marker>
+      <marker id="arrow-highlight" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/></marker>
+    </defs>
+  `;
+  $("svg-wiring-layer").innerHTML = defs + paths.join("");
 }
 
 function positionToolbar() {
@@ -439,6 +598,20 @@ function resetLayoutPositions() {
 
 function initializeEditor() {
   const canvas = $("canvas-container");
+  canvas.addEventListener("mouseover", event => {
+    const node = event.target.closest("[data-node]");
+    if (node && (!highlightedNode || highlightedNode.node !== node)) {
+      highlightedNode = { node, key: node.dataset.node };
+      scheduleWires();
+    }
+  });
+  canvas.addEventListener("mouseout", event => {
+    const node = event.target.closest("[data-node]");
+    if (node && !event.relatedTarget?.closest(`[data-node="${node.dataset.node}"]`)) {
+      highlightedNode = null;
+      scheduleWires();
+    }
+  });
   canvas.addEventListener("input", event => {
     const name = event.target.dataset.parameter;
     if (!name) return;

@@ -77,43 +77,80 @@
     }
     /* 节点极简卡片：可拖拽感 */
     .flow-node-box {
-      background: #FFFFFF;
-      border: 1px solid #E2DDD2;
-      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-      transition: box-shadow 0.16s ease-out, border-color 0.16s ease-out;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+      transition: box-shadow 0.16s ease-out, border-color 0.16s ease-out, transform 0.12s ease-out;
       cursor: grab;
+      user-select: none;
     }
     .flow-node-box:active {
       cursor: grabbing;
     }
     .flow-node-box:hover {
       border-color: #0F172A;
-      box-shadow: 0 6px 18px -3px rgba(15, 23, 42, 0.09);
+      box-shadow: 0 6px 18px -3px rgba(15, 23, 42, 0.12);
     }
     .flow-node-box.selected {
-      border-color: #0F172A;
-      box-shadow: 0 0 0 2px #FFD600, 0 6px 18px -3px rgba(15, 23, 42, 0.12);
+      border-color: #0F172A !important;
+      box-shadow: 0 0 0 2px #FFD600, 0 8px 20px -3px rgba(15, 23, 42, 0.18) !important;
     }
-    /* 避障导向连线 */
-    .wire-line {
+    /* 超紧凑微型常量胶囊 (130px, 纯中文) */
+    .node-constant {
+      width: 130px;
+      background: #FEFCE8;
+      border: 1px solid #FEF08A;
+      border-radius: 6px;
+    }
+    .node-constant:hover {
+      border-color: #D97706;
+    }
+    /* 超紧凑微型输入胶囊 (130px, 纯中文) */
+    .node-input {
+      width: 130px;
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+      border-radius: 6px;
+    }
+    .node-input:hover {
+      border-color: #16A34A;
+    }
+    /* 核心算子标准卡片 (270px) */
+    .node-step {
+      width: 270px;
+      background: #FFFFFF;
+      border: 1px solid #BFDBFE;
+      border-radius: 8px;
+    }
+    /* 四色语义连线与悬停高亮 */
+    .wire-base {
       fill: none;
-      stroke: #78716C;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: stroke-width 0.15s ease, stroke 0.15s ease, opacity 0.15s ease;
+    }
+    .wire-input {
+      stroke: #16A34A;
       stroke-width: 1.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+      opacity: 0.75;
     }
-    .wire-blue {
-      fill: none;
+    .wire-constant {
+      stroke: #D97706;
+      stroke-width: 1.8;
+      stroke-dasharray: 4 2;
+      opacity: 0.75;
+    }
+    .wire-step {
       stroke: #2563EB;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+      stroke-width: 2.0;
+      opacity: 0.85;
     }
-    /* 输出成果强调卡片 */
-    .terminal-output-box {
-      border: 2px solid #D8B4FE;
-      background: #FAF5FF;
-      box-shadow: 0 2px 6px rgba(147, 51, 234, 0.06);
+    .wire-highlight {
+      stroke: #2563EB !important;
+      stroke-width: 3.2 !important;
+      opacity: 1 !important;
+      filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.4));
+    }
+    .wire-dimmed {
+      opacity: 0.12 !important;
     }
     /* 画布平移手势 */
     .canvas-panning {
@@ -144,7 +181,14 @@
   <div class="flex-1 flex overflow-hidden relative">
     <main id="canvas-container" class="flex-1 overflow-hidden bg-paper-grid relative canvas-panning">
       <div id="dag-workspace" class="relative select-text" style="transform-origin:0 0;margin:30px 40px;will-change:transform">
-        <svg id="svg-wiring-layer" class="absolute inset-0 pointer-events-none" style="overflow:visible" xmlns="http://www.w3.org/2000/svg"></svg>
+        <svg id="svg-wiring-layer" class="absolute inset-0 pointer-events-none" style="overflow:visible" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-step" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/></marker>
+            <marker id="arrow-input" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#16A34A"/></marker>
+            <marker id="arrow-const" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#D97706"/></marker>
+            <marker id="arrow-highlight" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/></marker>
+          </defs>
+        </svg>
         <div id="node-layer"></div>
         <div id="node-floating-toolbar" class="hidden absolute z-30 bg-slate-900 text-white rounded shadow-xl px-2 py-1 flex gap-2 text-xs font-bold">
           <button onclick="triggerInsertBefore()">⬅ 前插算子</button>
