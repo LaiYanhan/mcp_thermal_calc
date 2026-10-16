@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class FormulaType(str, Enum):
     """公式计算类型"""
     ALGEBRAIC = "algebraic"  # 纯代数解析公式，基于 SymPy 自动双向求解
-    EMPIRICAL = "empirical"  # 经验/物性黑盒函数（如 IAPWS-IF97 物性查表、设备离散选型查表）
+    EMPIRICAL = "empirical"  # 经验/物性黑盒函数（如 IAPWS-95 物性查表、设备离散选型查表）
 
 
 @dataclass

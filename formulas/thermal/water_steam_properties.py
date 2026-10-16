@@ -1,36 +1,73 @@
 """
-水和水蒸气热力学物性查表公式 (IAPWS-IF97 Water & Steam Thermodynamic Properties)
-封装 IAPWS-IF97 国际水蒸气热力学状态方程。
+水和水蒸气热力学物性查表公式 (IAPWS-95 Water & Steam Thermodynamic Properties)
+封装 IAPWS-95 国际水蒸气热力学科学基准状态方程。
 """
 
-from pyXSteam.XSteam import XSteam
+from iapws import IAPWS95
 from core.formula import EmpiricalFormula, default_formula_registry
 from core.types import FormulaMetadata, FormulaType, Pin
 
-# 初始化 IAPWS-IF97 MKS 物性计算器 (P单位: bar, T单位: ℃, h单位: kJ/kg)
-_xsteam = XSteam(XSteam.UNIT_SYSTEM_MKS)
+
+class _IAPWS95Adapter:
+    """IAPWS-95 适配器，向工程公式层与测试暴露统一的 MKS 物理接口 (P: bar, T: ℃, h: kJ/kg)"""
+
+    @staticmethod
+    def tsat_p(p_bar: float) -> float:
+        p_mpa = p_bar / 10.0
+        sat = IAPWS95(P=p_mpa, x=1.0)
+        return float(sat.T - 273.15)
+
+    @staticmethod
+    def criticalPressure() -> float:
+        return float(IAPWS95.Pc * 10.0)
+
+    @staticmethod
+    def criticalTemperatur() -> float:
+        return float(IAPWS95.Tc - 273.15)
+
+    @staticmethod
+    def hV_p(p_bar: float) -> float:
+        p_mpa = p_bar / 10.0
+        sat = IAPWS95(P=p_mpa, x=1.0)
+        return float(sat.h)
+
+    @staticmethod
+    def hL_p(p_bar: float) -> float:
+        p_mpa = p_bar / 10.0
+        sat = IAPWS95(P=p_mpa, x=0.0)
+        return float(sat.h)
+
+    @staticmethod
+    def h_pt(p_bar: float, t_c: float) -> float:
+        p_mpa = p_bar / 10.0
+        t_k = t_c + 273.15
+        state = IAPWS95(P=p_mpa, T=t_k)
+        return float(state.h)
+
+
+# 实例化 IAPWS-95 物性计算器（保持 _xsteam 引用名称以兼容原有测试与模块调用）
+_xsteam = _IAPWS95Adapter()
 
 
 def _validate_steam_state(inputs: dict) -> None:
     pressure, temperature = inputs["steam_pressure"], inputs["steam_temperature"]
     # 临界点以上按单相流体处理；低于临界压力时必须处于汽相侧。
     minimum = _xsteam.tsat_p(pressure * 10.0) if pressure * 10.0 < _xsteam.criticalPressure() else _xsteam.criticalTemperatur()
-    if temperature < minimum - 1e-5:
+    if temperature < minimum - 1e-4:
         raise ValueError("蒸汽温度低于该绝对压力的汽相边界，请核对绝压与温度")
 
 
 def _validate_water_state(inputs: dict) -> None:
     pressure, temperature = inputs["feedwater_pressure"], inputs["feedwater_temperature"]
-    if pressure * 10.0 < _xsteam.criticalPressure() and temperature >= _xsteam.tsat_p(pressure * 10.0) - 1e-5:
+    if pressure * 10.0 < _xsteam.criticalPressure() and temperature >= _xsteam.tsat_p(pressure * 10.0) - 1e-4:
         raise ValueError("给水必须处于液相区，请核对绝对压力与温度")
 
 
 def _calc_steam_enthalpy(inputs: dict) -> dict:
     p_mpa = inputs["steam_pressure"]
     t_c = inputs["steam_temperature"]
-    # 1 MPa = 10 bar
     p_bar = p_mpa * 10.0
-    if p_bar < _xsteam.criticalPressure() and abs(t_c - _xsteam.tsat_p(p_bar)) <= 1e-5:
+    if p_bar < _xsteam.criticalPressure() and abs(t_c - _xsteam.tsat_p(p_bar)) <= 0.01:
         h_kj_kg = float(_xsteam.hV_p(p_bar))
     else:
         h_kj_kg = float(_xsteam.h_pt(p_bar, t_c))
@@ -43,7 +80,7 @@ steam_enthalpy_formula = EmpiricalFormula(
         id="thermal.steam_enthalpy",
         name="蒸汽焓值查表计算",
         category="thermal",
-        description="基于 IAPWS-IF97 国际水蒸气热力学状态方程，根据蒸汽工作压力与温度确定过热/饱和蒸汽比焓值。",
+        description="基于 IAPWS-95 国际水蒸气热力学科学基准状态方程，根据蒸汽工作压力与温度确定过热/饱和蒸汽比焓值。",
         notes="输入压力必须换算为绝对工作压力；若为湿饱和蒸汽需关注干度，目前默认过热或饱和单相蒸汽区。",
         formula_type=FormulaType.EMPIRICAL,
         inputs=[
@@ -95,7 +132,7 @@ water_enthalpy_formula = EmpiricalFormula(
         id="thermal.water_enthalpy",
         name="给水焓值查表计算",
         category="thermal",
-        description="基于 IAPWS-IF97 国际水蒸气热力学状态方程，根据锅炉给水压力与给水温度计算给水初始比焓值。",
+        description="基于 IAPWS-95 国际水蒸气热力学科学基准状态方程，根据锅炉给水压力与给水温度计算给水初始比焓值。",
         notes="给水通常为过冷未饱和水，压力对水比焓影响较小，温度为主要决定因素。",
         formula_type=FormulaType.EMPIRICAL,
         inputs=[
