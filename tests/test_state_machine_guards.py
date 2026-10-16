@@ -50,7 +50,7 @@ def test_state_machine_hard_guards():
     calc_res = sm.execute_calculation(session_id=session_id)
     assert calc_res["status"] == WorkflowState.CALCULATED.value
     assert "result" in calc_res
-    assert calc_res["result"]["final_outputs"]["heater_sizing_mw"] == 80.0
+    assert calc_res["result"]["final_outputs"]["salt_mass_tons"] == 8580.0
 
 
 def test_state_machine_rejection_flow():

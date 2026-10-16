@@ -16,7 +16,7 @@ from starlette.routing import Route
 import formulas
 import pipelines
 from core.formula import default_formula_registry
-from core.pipeline import PipelineValidationError
+from core.pipeline import PipelineValidationError, pipeline_registry
 from core.state_machine import workflow_manager, StateTransitionError
 from core.storage import engine_lock
 
@@ -74,12 +74,17 @@ async def editor_script_endpoint(request):
 @api_endpoint
 async def get_session_endpoint(request):
     session_id = request.path_params["session_id"]
+    pipeline_target = request.query_params.get("pipeline") or request.query_params.get("pipeline_id") or request.query_params.get("scenario_id")
+    reset_param = request.query_params.get("reset") in ("1", "true", "True")
     with engine_lock:
         session = workflow_manager.get_or_create_session(session_id)
-        if not session.scenario_id:
+        if pipeline_target:
+            pipeline = pipeline_registry.resolve(pipeline_target)
+            if not session.scenario_id or session.scenario_id != pipeline.id or reset_param:
+                workflow_manager.propose_existing_scenario(session_id, pipeline.id, "独立测试调试", {})
+        elif not session.scenario_id or reset_param:
             workflow_manager.propose_existing_scenario(session_id, "scenario_valley_salt_steam", "基准工况", {})
         return JSONResponse(workflow_manager.get_session_view(session_id))
-
 
 @api_endpoint
 async def update_pipeline_endpoint(request):
@@ -123,6 +128,10 @@ async def calculate_endpoint(request):
 async def list_formulas_endpoint(request):
     return JSONResponse({"formulas": default_formula_registry.to_ai_catalog()})
 
+@api_endpoint
+async def list_pipelines_endpoint(request):
+    return JSONResponse({"pipelines": pipeline_registry.to_ai_catalog()})
+
 
 @api_endpoint
 async def update_operator_endpoint(request):
@@ -153,8 +162,8 @@ routes = [
     Route("/api/formulas", list_formulas_endpoint),
     Route("/api/operator/update", update_operator_endpoint, methods=["POST"]),
     Route("/api/operator/add", add_operator_endpoint, methods=["POST"]),
+    Route("/api/pipelines", list_pipelines_endpoint),
 ]
-
 app = Starlette(debug=False, routes=routes, middleware=[
     Middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"]),
     Middleware(LocalEditorMiddleware),

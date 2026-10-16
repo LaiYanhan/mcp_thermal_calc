@@ -89,14 +89,14 @@ test('算子名称不作为 HTML 执行', () => {
 });
 
 // 覆盖真实输入事件→确认按钮调用顺序，不依赖浏览器是否额外发出 change。
-function editorHarness(status = 200) {
+function editorHarness(status = 200, search = '') {
   const listeners = {}, requests = [], output = {textContent:'旧成果'};
   const elements = {
     'canvas-container': {addEventListener:(name, callback)=>listeners[name]=callback, querySelectorAll:()=>[output]},
     'btn-main-action': {},
     'editor-message': {textContent:'',classList:{toggle(){}}},
   };
-  const context = vm.createContext({console, URLSearchParams, setTimeout, clearTimeout});
+  const context = vm.createContext({console, URLSearchParams, setTimeout, clearTimeout, location: {search}});
   vm.runInContext(readFileSync(require.resolve('../ui_editor.js'),'utf8'), context);
   context.document = {getElementById:id=>elements[id]};
   context.window = {addEventListener(){}};
@@ -128,4 +128,87 @@ test('断网时展示错误，不继续确认或计算', async () => {
   h.context.fetch = async () => {throw new Error('网络断开');};
   await vm.runInContext('handlePrimaryAction()',h.context);
   assert.equal(h.elements['editor-message'].textContent,'网络断开');
+});
+
+test('指定流水线的页面仍然调用正确的确认和计算路径', async () => {
+  const h = editorHarness(200, '?session_id=custom&pipeline=other&reset=1');
+  await vm.runInContext('handlePrimaryAction()', h.context);
+  assert.deepEqual(h.requests.map(item => item.url), [
+    '/api/session/custom/parameters', '/api/session/custom/confirm_parameters', '/api/session/custom/calculate',
+  ]);
+});
+
+function layoutFor(pipeline, sizes = {}) {
+  const context = vm.createContext({URLSearchParams, pipeline, sizes});
+  vm.runInContext(readFileSync(require.resolve('../ui_editor.js'), 'utf8'), context);
+  return JSON.parse(vm.runInContext('JSON.stringify(computePlan2Layout(pipeline, sizes))', context));
+}
+
+test('陌生场景仅布局实际节点，首个算子位于初始视口内', () => {
+  const layout = layoutFor({required_inputs: [{name: 'quantity'}], steps: [
+    {step_id: 'custom', input_map: {x: 'quantity'}, output_map: {y: 'answer'}},
+  ]});
+  assert.deepEqual(Object.keys(layout).sort(), ['input:quantity', 'step:custom']);
+  assert.ok(layout['step:custom'].left < 600);
+  assert.ok(layout['input:quantity'].top < layout['step:custom'].top);
+});
+
+test('按真实依赖向右分流排布，不依赖步骤名称和数组顺序', () => {
+  const pipeline = {required_inputs: [{name: 'x'}], steps: [
+    {step_id: 'join', input_map: {a: 'left', b: 'right'}, output_map: {z: 'answer'}},
+    {step_id: 'right', input_map: {a: 'seed'}, output_map: {z: 'right'}},
+    {step_id: 'root', input_map: {a: 'x'}, output_map: {z: 'seed'}},
+    {step_id: 'left', input_map: {a: 'seed'}, output_map: {z: 'left'}},
+  ]};
+  const layout = layoutFor(pipeline);
+  for (const child of ['left', 'right']) {
+    assert.ok(layout['step:root'].left < layout[`step:${child}`].left);
+    assert.ok(layout[`step:${child}`].left < layout['step:join'].left);
+  }
+  assert.notEqual(layout['step:left'].top, layout['step:right'].top);
+});
+
+test('reset 和场景选择只用于首次读取，后续同步不会丢失草稿', async () => {
+  const search = '?session_id=custom&pipeline=other&reset=1';
+  const replaced = [];
+  const context = vm.createContext({URLSearchParams, URL, location: {search, href: `http://localhost/editor${search}`},
+    history: {replaceState: (_, title, url) => replaced.push(String(url))}});
+  vm.runInContext(readFileSync(require.resolve('../ui_editor.js'), 'utf8'), context);
+  const urls = [];
+  context.fetch = async url => {
+    urls.push(url);
+    return {ok: true, json: async () => ({current_state: 'SCENARIO_PROPOSED', validation: {errors: []}})};
+  };
+  vm.runInContext('renderGraph = () => {}; showMessage = () => {};', context);
+  await vm.runInContext('syncFromBackend()', context);
+  await vm.runInContext('syncFromBackend()', context);
+  assert.deepEqual(urls, ['/api/session/custom?pipeline=other&reset=1', '/api/session/custom']);
+  assert.deepEqual(replaced, ['http://localhost/editor?session_id=custom&pipeline=other']);
+});
+
+test('大算子、多输入和共享常量按实际尺寸排布，无重复胶囊或卡片重叠', () => {
+  const pipeline = {required_inputs: Array.from({length: 7}, (_, i) => ({name: `p${i}`})), steps: [
+    {step_id: 'tall', input_map: Object.fromEntries(Array.from({length: 6}, (_, i) => [`v${i}`, `p${i}`])), output_map: {y: 'a'}},
+    {step_id: 'parallel', input_map: {x: 'p0', y: 'p6'}, output_map: {y: 'b'}},
+  ]};
+  const sizes = Object.fromEntries(pipeline.required_inputs.map(pin => [`input:${pin.name}`, {width: 150, height: 70}]));
+  sizes['step:tall'] = {width: 270, height: 600};
+  sizes['step:parallel'] = {width: 270, height: 260};
+  const layout = layoutFor(pipeline, sizes), keys = Object.keys(layout);
+  assert.equal(keys.length, 9);
+  for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
+    const a = layout[keys[i]], b = layout[keys[j]], sa = sizes[keys[i]], sb = sizes[keys[j]];
+    assert.ok(a.left + sa.width <= b.left || b.left + sb.width <= a.left ||
+      a.top + sa.height <= b.top || b.top + sb.height <= a.top, `${keys[i]} overlaps ${keys[j]}`);
+  }
+});
+
+test('缺失来源和循环草稿仍能有限排布，仅由后端决定是否允许计算', () => {
+  const pipeline = {required_inputs: [{name: 'unused'}], steps: [
+    {step_id: 'a', input_map: {x: 'b'}, output_map: {y: 'a'}},
+    {step_id: 'b', input_map: {x: 'a', z: 'missing'}, output_map: {y: 'b'}},
+  ]};
+  const layout = layoutFor(pipeline);
+  assert.equal(Object.keys(layout).length, 3);
+  assert.ok(Object.values(layout).every(p => Number.isFinite(p.left) && Number.isFinite(p.top)));
 });

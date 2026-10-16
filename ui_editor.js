@@ -133,8 +133,14 @@ let insertionMode = "after", insertionAnchor = null, panX = 0, panY = 0, busy = 
 let mutationQueue = Promise.resolve(), wireFrame = null, drag = null, highlightedNode = null;
 let pendingParameters = {};
 const $ = id => document.getElementById(id);
-const sessionId = typeof location === "undefined" ? "" : new URLSearchParams(location.search).get("session_id") || "default";
+const urlParams = typeof location === "undefined" ? new URLSearchParams() : new URLSearchParams(location.search);
+const sessionId = urlParams.get("session_id") || "default";
+const queryParams = new URLSearchParams();
+for (const key of ["pipeline", "pipeline_id", "scenario_id", "reset"]) {
+  if (urlParams.has(key)) queryParams.set(key, urlParams.get(key));
+}
 const sessionUrl = `/api/session/${encodeURIComponent(sessionId)}`;
+let initialSessionLoad = true;
 const formulaById = id => sessionView.formulas.find(formula => formula.id === id);
 const needsScenario = () => ["INITIAL", "SCENARIO_PROPOSED"].includes(sessionView.current_state) ||
   (sessionView.current_state === "MODIFICATION_REQUESTED" && !Object.keys(sessionView.inspected_parameters).length);
@@ -164,7 +170,14 @@ function enqueue(action) {
 }
 
 async function syncFromBackend() {
-  sessionView = await api(sessionUrl);
+  const query = initialSessionLoad && queryParams.toString();
+  sessionView = await api(sessionUrl + (query ? `?${query}` : ""));
+  initialSessionLoad = false;
+  if (query && queryParams.has("reset") && typeof history !== "undefined") {
+    const url = new URL(location.href);
+    url.searchParams.delete("reset");
+    history.replaceState(null, "", url);
+  }
   if (needsScenario()) activeStage = 1;
   renderGraph();
   const errors = sessionView.validation?.errors || [];
@@ -264,98 +277,79 @@ function renderStepCard(step, formula, pins, expression, result, isSelected) {
   </section>`;
 }
 
-function computePlan2Layout(pipeline) {
-  const layout = {};
-  const placedInputs = new Set();
-  const columnWidth = 360;
-  const startX = 40;
+function computePlan2Layout(pipeline, sizes = {}) {
+  const layout = {}, producers = new Map(), ranks = new Map();
+  const steps = new Map(pipeline.steps.map(step => [step.step_id, step]));
+  const inputNames = new Set(pipeline.required_inputs.map(pin => pin.name));
+  const dimensions = key => sizes[key] || {width: key.startsWith("input:") ? 150 : 270, height: key.startsWith("input:") ? 60 : 260};
+  for (const step of pipeline.steps) for (const variable of Object.values(step.output_map)) producers.set(variable, step.step_id);
+  const parents = new Map(pipeline.steps.map(step => [step.step_id, new Set(
+    Object.values(step.input_map).map(variable => producers.get(variable)).filter(id => id !== undefined)
+  )]));
 
-  // 第一列 (X=40): 蒸汽与给水输入胶囊，直接位于其算子左侧
-  layout["input:steam_pressure"] = { left: startX, top: 90 };
-  layout["input:steam_temperature"] = { left: startX, top: 160 };
-  layout["input:feedwater_pressure"] = { left: startX, top: 370 };
-  layout["input:feedwater_temperature"] = { left: startX, top: 440 };
-  placedInputs.add("steam_pressure");
-  placedInputs.add("steam_temperature");
-  placedInputs.add("feedwater_pressure");
-  placedInputs.add("feedwater_temperature");
-
-  // 第二列 (X=220): 蒸汽与给水比焓查表算子 (纵向预留 105px 净空，彻底消除重叠遮挡)
-  layout["step:step_1_steam_enthalpy"] = { left: startX + 180, top: 90 };
-  layout["step:step_2_water_enthalpy"] = { left: startX + 180, top: 370 };
-
-  // 第三列起: 核心能量主轴 (Y=220)、设备选型分支 (Y=560)、能耗毛利分支 (Y=860)
-  const mainXMap = {
-    "step_3_enthalpy_diff": 1,
-    "step_4_theoretical_power": 2,
-    "step_5_sgs_power": 3,
-    "step_6_steam_heat_supply": 4,
-    "step_7_thermal_storage_capacity": 5,
-    "step_8_electric_heater_power": 6,
-    "step_9_molten_salt_mass": 7
-  };
-
-  let customIdx = 0;
-  pipeline.steps.forEach(step => {
-    const sid = step.step_id;
-    if (layout[`step:${sid}`]) return;
-
-    if (mainXMap[sid] !== undefined) {
-      layout[`step:${sid}`] = { left: startX + 180 + mainXMap[sid] * columnWidth, top: 220 };
-    } else if (sid === "step_10_sgs_sizing") {
-      layout[`step:${sid}`] = { left: startX + 180 + 3 * columnWidth, top: 560 };
-    } else if (sid === "step_11_heater_sizing") {
-      layout[`step:${sid}`] = { left: startX + 180 + 6 * columnWidth, top: 560 };
-    } else if (sid === "step_12_transformer_sizing") {
-      layout[`step:${sid}`] = { left: startX + 180 + 7 * columnWidth, top: 560 };
-    } else if (sid === "step_13_salt_mass_roundup") {
-      layout[`step:${sid}`] = { left: startX + 180 + 8 * columnWidth, top: 560 };
-    } else if (sid === "step_16_daily_steam_production") {
-      layout[`step:${sid}`] = { left: startX + 180 + 2 * columnWidth, top: 560 };
-    } else if (sid === "step_17_annual_steam_production") {
-      layout[`step:${sid}`] = { left: startX + 180 + 2 * columnWidth, top: 860 };
-    } else if (sid === "step_19_daily_steam_revenue") {
-      layout[`step:${sid}`] = { left: startX + 180 + 3 * columnWidth, top: 860 };
-    } else if (sid === "step_14_daily_electricity") {
-      layout[`step:${sid}`] = { left: startX + 180 + 5 * columnWidth, top: 860 };
-    } else if (sid === "step_15_annual_electricity") {
-      layout[`step:${sid}`] = { left: startX + 180 + 6 * columnWidth, top: 860 };
-    } else if (sid === "step_18_daily_electricity_cost") {
-      layout[`step:${sid}`] = { left: startX + 180 + 7 * columnWidth, top: 860 };
-    } else if (sid === "step_20_daily_operating_spread") {
-      layout[`step:${sid}`] = { left: startX + 180 + 8 * columnWidth, top: 860 };
-    } else if (sid === "step_21_annual_operating_spread") {
-      layout[`step:${sid}`] = { left: startX + 180 + 9 * columnWidth, top: 860 };
-    } else {
-      layout[`step:${sid}`] = { left: startX + 180 + (10 + customIdx++) * columnWidth, top: 220 };
+  // 仅使用真实来源关系分层，数组顺序和业务名称不决定计算流向。
+  const pending = new Set(steps.keys()), ordered = [];
+  while (pending.size) {
+    let ready = [...pending].filter(id => [...parents.get(id)].every(parent => ranks.has(parent)));
+    // 不完整或循环草稿仍可查看、修复；计算合法性由后端校验。
+    if (!ready.length) ready = [pending.values().next().value];
+    for (const id of ready) {
+      ranks.set(id, Math.max(-1, ...[...parents.get(id)].map(parent => ranks.get(parent) ?? -1)) + 1);
+      pending.delete(id); ordered.push(id);
     }
+  }
 
-    const inputsForStep = Object.values(step.input_map).filter(varName => 
-      pipeline.required_inputs.some(p => p.name === varName) && !placedInputs.has(varName)
-    );
-
-    inputsForStep.forEach((varName, inIdx) => {
-      placedInputs.add(varName);
-      const stepPos = layout[`step:${sid}`];
-      const colOffset = (inIdx % 2) * 148;
-      const rowOffset = Math.floor(inIdx / 2) * 65;
-      // 根据算子所在楼层，精准分配上空输入胶囊的 Y 轴高度，绝不压迫算子顶边
-      const baseTop = stepPos.top > 700 ? 760 : (stepPos.top > 400 ? 460 : (inputsForStep.length > 2 ? 30 : 80));
-      layout[`input:${varName}`] = {
-        left: stepPos.left + colOffset,
-        top: baseTop + rowOffset
-      };
-    });
-  });
-
-  let unplacedIdx = 0;
-  pipeline.required_inputs.forEach(pin => {
-    if (!placedInputs.has(pin.name)) {
-      layout[`input:${pin.name}`] = { left: startX + unplacedIdx * 148, top: 20 };
-      unplacedIdx++;
+  // 共享参数只放置一次，就近附着于最早使用它的算子。
+  const attached = new Map(), placedInputs = new Set();
+  for (const id of ordered) {
+    const names = [...new Set(Object.values(steps.get(id).input_map))].filter(name => inputNames.has(name) && !placedInputs.has(name));
+    attached.set(id, names);
+    names.forEach(name => placedInputs.add(name));
+  }
+  const columns = new Map();
+  for (const id of ordered) {
+    const rank = ranks.get(id);
+    if (!columns.has(rank)) columns.set(rank, []);
+    columns.get(rank).push(id);
+  }
+  let left = 40, bottom = 20;
+  for (const [rank, ids] of [...columns].sort((a, b) => a[0] - b[0])) {
+    // 分支跟随上游所在行，汇合节点仍在所有上游的右侧。
+    const parentTop = id => {
+      const positions = [...parents.get(id)].map(parent => layout[`step:${parent}`]?.top).filter(top => top !== undefined);
+      return positions.length ? Math.min(...positions) : 220;
+    };
+    ids.sort((a, b) => parentTop(a) - parentTop(b));
+    let cursor = 20, columnWidth = 270;
+    for (const id of ids) {
+      const key = `step:${id}`, size = dimensions(key), names = attached.get(id);
+      let inputTop = cursor, inputWidth = 0;
+      for (let i = 0; i < names.length; i += 2) {
+        let x = left, rowHeight = 0;
+        for (const name of names.slice(i, i + 2)) {
+          const inputKey = `input:${name}`, inputSize = dimensions(inputKey);
+          layout[inputKey] = {left: x, top: inputTop};
+          x += inputSize.width + 18;
+          rowHeight = Math.max(rowHeight, inputSize.height);
+        }
+        inputWidth = Math.max(inputWidth, x - left - 18);
+        inputTop += rowHeight + 18;
+      }
+      const top = Math.max(parentTop(id), names.length ? inputTop + 40 : cursor + 40);
+      layout[key] = {left, top};
+      columnWidth = Math.max(columnWidth, size.width, inputWidth);
+      cursor = top + size.height + 100;
+      bottom = Math.max(bottom, cursor);
     }
-  });
-
+    left += columnWidth + 90;
+  }
+  // 未使用的参数保留在图中，放在现有卡片下方，方便后续连接。
+  let unusedLeft = 40;
+  for (const pin of pipeline.required_inputs) if (!placedInputs.has(pin.name)) {
+    const key = `input:${pin.name}`;
+    layout[key] = {left: unusedLeft, top: bottom};
+    unusedLeft += dimensions(key).width + 18;
+  }
   return layout;
 }
 
@@ -381,13 +375,14 @@ function renderGraph() {
   }
 
   $("node-layer").innerHTML = html.join("");
-  const defaultLayout = computePlan2Layout(pipeline);
   const nodes = [...$("node-layer").children];
+  const sizes = Object.fromEntries(nodes.map(node => [node.dataset.node, {width: node.offsetWidth, height: node.offsetHeight}]));
+  const defaultLayout = computePlan2Layout(pipeline, sizes);
   let maxRight = 1200, maxBottom = 800;
 
   nodes.forEach(node => {
     const key = node.dataset.node;
-    const savedPos = pipeline.layout[key];
+    const savedPos = pipeline.layout?.[key];
     const defaultPos = defaultLayout[key] || { left: 40, top: 200 };
 
     const left = savedPos ? savedPos.left : defaultPos.left;
@@ -396,8 +391,8 @@ function renderGraph() {
     node.style.left = left + "px";
     node.style.top = top + "px";
 
-    maxRight = Math.max(maxRight, left + 340);
-    maxBottom = Math.max(maxBottom, top + 260);
+    maxRight = Math.max(maxRight, left + node.offsetWidth + 80);
+    maxBottom = Math.max(maxBottom, top + node.offsetHeight + 80);
   });
 
   $("dag-workspace").style.width = maxRight + "px";

@@ -5,6 +5,8 @@ Pipeline DAG execution engine and pipeline registry.
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import asdict
 from copy import deepcopy
+from pathlib import Path
+import importlib.util
 import math
 import re
 from core.formula import FormulaRegistry, registry as default_registry
@@ -386,9 +388,61 @@ class PipelineRegistry:
             raise KeyError(f"未注册的计算管道ID: '{pipeline_id}'")
         return self._pipelines[pipeline_id]
 
+    def resolve(self, target: str) -> Pipeline:
+        """
+        根据管道 ID、中文名称、模块文件名或 .py 文件路径解析并获取 Pipeline 实例。
+        若指定文件未被导入，则自动进行动态加载与注册。
+        """
+        target_clean = target.strip().replace("\\", "/")
+
+        # 确保内置 pipelines 包已加载
+        if not self._pipelines:
+            try:
+                import pipelines  # noqa: F401
+            except ImportError:
+                pass
+
+        # 1. 精确 ID 匹配
+        if target_clean in self._pipelines:
+            return self._pipelines[target_clean]
+
+        # 2. 候选路径检测与动态加载 (.py 文件或 pipelines 目录下的对应模块)
+        candidate_paths = [
+            Path(target_clean),
+            Path("pipelines") / target_clean,
+            Path("pipelines") / (target_clean if target_clean.endswith(".py") else f"{target_clean}.py"),
+        ]
+        for path in candidate_paths:
+            if path.exists() and path.suffix == ".py":
+                spec = importlib.util.spec_from_file_location(path.stem, str(path.resolve()))
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    try:
+                        spec.loader.exec_module(mod)
+                    except ValueError as err:
+                        if "已存在" not in str(err):
+                            raise
+                    for attr in dir(mod):
+                        val = getattr(mod, attr)
+                        if isinstance(val, Pipeline):
+                            if val.id not in self._pipelines:
+                                self.register(val)
+                            return val
+
+        # 3. 按名称或标识模糊词根匹配
+        tokens = set(target_clean.lower().replace(".py", "").replace("scenario_", "").replace("pipeline_", "").split("_"))
+        for p in self._pipelines.values():
+            if target_clean in p.id or target_clean in p.name:
+                return p
+            p_tokens = set(p.id.lower().replace("scenario_", "").replace("pipeline_", "").split("_"))
+            if tokens.issubset(p_tokens) or p_tokens.issubset(tokens) or (tokens & p_tokens and len(tokens & p_tokens) >= 2):
+                return p
+
+        available = [p.id for p in self._pipelines.values()]
+        raise KeyError(f"未找到匹配的计算管道: '{target}'。当前已注册管道: {available}")
+
     def list_all(self) -> List[Pipeline]:
         return list(self._pipelines.values())
-
     def to_ai_catalog(self) -> List[Dict[str, Any]]:
         """输出供大模型（Agent）场景匹配的场景清单"""
         catalog = []

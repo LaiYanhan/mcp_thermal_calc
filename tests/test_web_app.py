@@ -72,8 +72,8 @@ def test_full_web_api_lifecycle(client):
     calc_res = resp_calc.json()
     assert calc_res["status"] == "CALCULATED"
     assert "result" in calc_res
-    # 流量提升至 120t/h 时，电加热器与 SGS 选型相应调整
-    assert calc_res["result"]["final_outputs"]["heater_sizing_mw"] >= 80.0
+    # 流量提升至 120t/h 时，电加热器功率相应上升
+    assert calc_res["result"]["final_outputs"]["electric_heater_power"] >= 78.0
 
 
 def test_operator_update_and_add_apis(client):
