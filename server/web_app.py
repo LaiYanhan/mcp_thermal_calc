@@ -83,7 +83,7 @@ async def get_session_endpoint(request):
             if not session.scenario_id or session.scenario_id != pipeline.id or reset_param:
                 workflow_manager.propose_existing_scenario(session_id, pipeline.id, "独立测试调试", {})
         elif not session.scenario_id or reset_param:
-            workflow_manager.propose_existing_scenario(session_id, "scenario_valley_salt_steam", "基准工况", {})
+            workflow_manager.propose_existing_scenario(session_id, "scenario_electric_heater_salt_steam", "基准工况", {})
         return JSONResponse(workflow_manager.get_session_view(session_id))
 
 @api_endpoint

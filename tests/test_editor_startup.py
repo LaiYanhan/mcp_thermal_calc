@@ -18,7 +18,7 @@ def test_list_pipelines_works_in_windows_gbk_console():
         capture_output=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr.decode("gbk", errors="replace")
-    assert b"scenario_valley_salt_steam" in result.stdout
+    assert b"scenario_electric_heater_salt_steam" in result.stdout
 
 
 def test_selected_custom_pipeline_survives_edit_confirm_calculate_and_sync():
