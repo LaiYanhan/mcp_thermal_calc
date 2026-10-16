@@ -141,46 +141,21 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"salt_mass": "salt_mass"},
         description="根据储热容量、熔盐高低温差、定压比热容及安全冗余系数确定理论熔盐净重",
     ),
-    # 步骤 10: SGS 换热器离散选型
-    # 公式：SGS理论换热功率需求 向上整定至5MW模数 = SGS标准选型规格
-    PipelineStep(
-        step_id="step_10_sgs_sizing",
-        formula_id="sizing.sgs_sizing",
-        input_map={"sgs_power": "sgs_power"},
-        output_map={"sgs_sizing_mw": "sgs_sizing_mw"},
-        description="SGS换热功率向上整定至 5MW 标准步长选型规格",
-    ),
-    # 步骤 11: 电加热器离散选型
-    # 公式：电加热器理论电功率需求 向上整定至5MW模数 = 电加热器标准选型规格
-    PipelineStep(
-        step_id="step_11_heater_sizing",
-        formula_id="sizing.heater_sizing",
-        input_map={"electric_heater_power": "electric_heater_power"},
-        output_map={"heater_sizing_mw": "heater_sizing_mw"},
-        description="电加热器电功率向上整定至 5MW 标准模块选型规格",
-    ),
-    # 步骤 12: 主变压器标准容量选型
-    # 公式：根据电加热器选型功率查国家标准变压器序列向上匹配 = 主变压器标准额定容量
-    PipelineStep(
-        step_id="step_12_transformer_sizing",
-        formula_id="sizing.transformer_sizing",
-        input_map={"heater_sizing_mw": "heater_sizing_mw"},
-        output_map={"transformer_capacity_mva": "transformer_capacity_mva"},
-        description="按电加热器选型功率查国标序列向上匹配主变压器额定容量",
-    ),
-    # 步骤 13: 熔盐采购量工程整定
+
+    # 步骤 10: 熔盐采购量工程整定
     # 公式：理论熔盐装填量 向上取整至整10吨 = 工程整定熔盐订购量
     PipelineStep(
-        step_id="step_13_salt_mass_roundup",
+        step_id="step_10_salt_mass_roundup",
         formula_id="sizing.salt_mass_roundup",
         input_map={"salt_mass": "salt_mass"},
         output_map={"salt_mass_tons": "salt_mass_tons"},
         description="理论熔盐净重向上圆整至整 10 吨采购订货量",
     ),
-    # 步骤 14: 每日消纳谷电量计算
+
+    # 步骤 11: 每日消纳谷电量计算
     # 公式：电加热器运行功率 * 每日谷电时长 = 每日消纳谷电电量
     PipelineStep(
-        step_id="step_14_daily_electricity",
+        step_id="step_11_daily_electricity",
         formula_id="operation.daily_electricity",
         input_map={
             "electric_heater_power": "electric_heater_power",
@@ -189,10 +164,10 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"daily_power_mwh": "daily_power_mwh"},
         description="计算每日消纳低谷电用电量（MWh/d）",
     ),
-    # 步骤 15: 年累计消纳电量计算
+    # 步骤 12: 年累计消纳电量计算
     # 公式：每日消纳谷电电量 * 年运行天数 / 10 = 年累计用电量
     PipelineStep(
-        step_id="step_15_annual_electricity",
+        step_id="step_12_annual_electricity",
         formula_id="operation.annual_electricity",
         input_map={
             "daily_power_mwh": "daily_power_mwh",
@@ -201,10 +176,10 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"annual_power_wan_kwh": "annual_power_wan_kwh"},
         description="按年有效运营天数测算年累计用电量（万kWh/年）",
     ),
-    # 步骤 16: 每日供汽总量计算
+    # 步骤 13: 每日供汽总量计算
     # 公式：蒸汽瞬时流量 * 每日供汽时长 = 每日供汽总量
     PipelineStep(
-        step_id="step_16_daily_steam_production",
+        step_id="step_13_daily_steam_production",
         formula_id="operation.daily_steam_production",
         input_map={
             "steam_mass_flow": "steam_mass_flow",
@@ -213,10 +188,10 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"daily_steam_tons": "daily_steam_tons"},
         description="计算每日累计外供蒸汽吨数（t/d）",
     ),
-    # 步骤 17: 年累计供汽量计算
+    # 步骤 14: 年累计供汽量计算
     # 公式：每日供汽总量 * 年运行天数 / 10000 = 年累计供汽总量
     PipelineStep(
-        step_id="step_17_annual_steam_production",
+        step_id="step_14_annual_steam_production",
         formula_id="operation.annual_steam_production",
         input_map={
             "daily_steam_tons": "daily_steam_tons",
@@ -225,10 +200,10 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"annual_steam_wan_tons": "annual_steam_wan_tons"},
         description="测算年累计外供蒸汽量（万t/年）",
     ),
-    # 步骤 18: 每日购电成本计算
+    # 步骤 15: 每日购电成本计算
     # 公式：每日消纳谷电电量 * 1000 * 低谷电价 = 每日购电成本
     PipelineStep(
-        step_id="step_18_daily_electricity_cost",
+        step_id="step_15_daily_electricity_cost",
         formula_id="operation.daily_electricity_cost",
         input_map={
             "daily_power_mwh": "daily_power_mwh",
@@ -237,10 +212,10 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"daily_electricity_cost": "daily_electricity_cost"},
         description="计算每日谷电购电费用支出（元/d）",
     ),
-    # 步骤 19: 每日售汽收入计算
+    # 步骤 16: 每日售汽收入计算
     # 公式：每日供汽总量 * 蒸汽市售单价 = 每日售汽收入
     PipelineStep(
-        step_id="step_19_daily_steam_revenue",
+        step_id="step_16_daily_steam_revenue",
         formula_id="operation.daily_steam_revenue",
         input_map={
             "daily_steam_tons": "daily_steam_tons",
@@ -249,10 +224,10 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"daily_steam_revenue": "daily_steam_revenue"},
         description="计算每日外供蒸汽营业收入（元/d）",
     ),
-    # 步骤 20: 每日经营毛收益差额计算
+    # 步骤 17: 每日经营毛收益差额计算
     # 公式：每日售汽收入 - 每日购电成本 = 每日经营毛收益差额
     PipelineStep(
-        step_id="step_20_daily_operating_spread",
+        step_id="step_17_daily_operating_spread",
         formula_id="operation.daily_operating_spread",
         input_map={
             "daily_steam_revenue": "daily_steam_revenue",
@@ -261,18 +236,7 @@ VALLEY_SALT_STEAM_STEPS = [
         output_map={"daily_operating_spread": "daily_operating_spread"},
         description="计算日度售汽收入与低谷购电成本的毛利差额（元/d）",
     ),
-    # 步骤 21: 年化经营毛收益差额测算
-    # 公式：每日经营毛收益差额 * 年运行天数 / 10000 = 年化经营毛收益差额
-    PipelineStep(
-        step_id="step_21_annual_operating_spread",
-        formula_id="operation.annual_operating_spread",
-        input_map={
-            "daily_operating_spread": "daily_operating_spread",
-            "annual_operating_days": "annual_operating_days",
-        },
-        output_map={"annual_operating_spread_wan": "annual_operating_spread_wan"},
-        description="折算年化经营毛收益差额（万元/年）",
-    ),
+    
 ]
 
 
