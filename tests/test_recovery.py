@@ -393,6 +393,6 @@ def test_mcp_stdio_entry_initializes_and_blocks_unapproved_calculation(tmp_path)
                     invalid = await session.call_tool("confirm_scenario", {"session_id": "unapproved", "confirmed": 1})
                     assert invalid.is_error
                     scenarios = await session.call_tool("list_scenarios", {})
-                    assert "scenario_valley_salt_steam" in scenarios.content[0].text
+                    assert "scenario_electric_heater_salt_steam" in scenarios.content[0].text
 
     anyio.run(run)

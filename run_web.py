@@ -37,17 +37,17 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 常用示例:
-  python run_web.py                                             # 默认启动基准场景
-  python run_web.py -p valley_molten_salt_steam                 # 指定流水线模块名启动
-  python run_web.py -p pipelines/valley_molten_salt_steam.py    # 指定具体文件启动
-  python run_web.py -p valley_molten_salt_steam --reset         # 强制清空缓存并刷新重绘
-  python run_web.py --list                                      # 打印全部已注册流水线清单
+  python run_web.py                                                  # 默认启动电加热器熔盐储热基准场景
+  python run_web.py -p electric_heater_salt_steam                    # 指定调试电加热器熔盐储热流水线
+  python run_web.py -p industrial_heat_pump_steam                    # 指定调试工业热泵储能供汽流水线
+  python run_web.py -p industrial_heat_pump_steam --reset            # 强制清空缓存并重绘热泵图纸
+  python run_web.py --list                                           # 打印全部已注册流水线清单
         """
     )
     parser.add_argument(
         "-p", "--pipeline",
-        default="scenario_valley_salt_steam",
-        help="指定要渲染和调试的流水线 (支持 Pipeline ID、模块名或 .py 文件路径，默认: scenario_valley_salt_steam)"
+        default="scenario_electric_heater_salt_steam",
+        help="指定要渲染和调试的流水线 (支持 Pipeline ID、模块名或 .py 文件路径，默认: scenario_electric_heater_salt_steam)"
     )
     parser.add_argument(
         "-s", "--stage",
