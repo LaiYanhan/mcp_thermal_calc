@@ -135,7 +135,7 @@ def test_empty_pipeline_is_rejected_without_mutation(client):
 
 
 def test_unordered_dag_executes_in_dependency_order():
-    data = pipeline_registry.get("scenario_valley_salt_steam").to_dict()
+    data = pipeline_registry.get("scenario_electric_heater_salt_steam").to_dict()
     expected = Pipeline.from_dict(data).execute({}).final_outputs
     data["steps"].reverse()
     assert Pipeline.from_dict(data).execute({}).final_outputs == expected
@@ -224,7 +224,7 @@ def test_salt_boundaries_fail_during_inspection(client, parameters):
 def test_new_proposal_clears_old_result(client):
     base = prepare(client)
     client.post(base + "/calculate")
-    workflow_manager.propose_existing_scenario("recovery", "scenario_valley_salt_steam", "修改", {"steam_mass_flow": 120})
+    workflow_manager.propose_existing_scenario("recovery", "scenario_electric_heater_salt_steam", "修改", {"steam_mass_flow": 120})
     assert client.get(base).json()["calculation_result"] is None
 
 

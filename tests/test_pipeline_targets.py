@@ -77,7 +77,7 @@ def test_inverse_checks_known_and_result_bounds():
 
 
 def test_empirical_keeps_forward_contract_and_all_outputs_are_results():
-    data = pipeline_registry.get("scenario_valley_salt_steam").to_dict()
+    data = pipeline_registry.get("scenario_electric_heater_salt_steam").to_dict()
     result = Pipeline.from_dict(data).execute({})
     assert len(result.results) == sum(len(step["output_map"]) for step in data["steps"])
     assert {item.variable for item in result.results} == set(result.final_outputs)

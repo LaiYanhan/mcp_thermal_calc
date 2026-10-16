@@ -179,6 +179,53 @@ molten_salt_mass_formula = AlgebraicFormula(
     equation_str="salt_mass = thermal_storage_capacity * 3600 / (salt_specific_heat * (salt_hot_temperature - salt_cold_temperature)) * salt_safety_margin",
 )
 
+# ================= 8. 热泵输出功率计算 =================
+# 公式：储热罐额定储热量 / 谷电时长 = 热泵输出热功率
+heat_pump_thermal_power = AlgebraicFormula(
+    metadata=FormulaMetadata(
+        id="thermal.heat_pump_thermal_power",
+        name="热泵额定制热热功率计算",
+        category="thermal",
+        description="基于储热总能量在谷电时间窗口内完成蓄热的能量守恒，折算热泵输出热功率（MWt）。",
+        notes="供汽时长与谷电时长已解耦，基于总储热能量除以谷电时长折算。",
+        formula_type=FormulaType.ALGEBRAIC,
+        inputs=[
+            Pin("thermal_storage_capacity", "MWh", "储热罐额定储热容量", min_value=0.1, max_value=60000.0),
+            Pin("valley_electricity_hours", "h", "每日低谷电蓄热时长", min_value=0.5, max_value=24.0, default_value=8.0),
+        ],
+        outputs=[
+            Pin("heat_pump_thermal_power", "MWt", "热泵输出热功率", min_value=0.1, max_value=2000.0)
+        ],
+        expression="heat_pump_thermal_power = thermal_storage_capacity / valley_electricity_hours",
+        is_bidirectional=True,
+    ),
+    equation_str="heat_pump_thermal_power = thermal_storage_capacity / valley_electricity_hours",
+)
+
+# ================= 9. 热泵输入电功率计算 =================
+# 热泵输出热功率 / COP = 热泵输入电功率
+heat_pump_electric_power = AlgebraicFormula(
+    metadata=FormulaMetadata(
+        id="thermal.heat_pump_electric_power",
+        name="热泵额定输入电功率计算",
+        category="thermal",
+        description="基于储热总能量在谷电时间窗口内完成蓄热的能量守恒，折算热泵输入电功率（MWe）。",
+        notes="供汽时长与谷电时长已解耦，基于总储热能量除以谷电时长折算。",
+        formula_type=FormulaType.ALGEBRAIC,
+        inputs=[
+            Pin("heat_pump_thermal_power", "MWt", "热泵输出热功率", min_value=0.1, max_value=2000.0),
+            Pin("cop", "dimensionless", "热泵COP", min_value=1.0, max_value=10.0, default_value=1.5),
+        ],
+        outputs=[
+            Pin("heat_pump_electric_power", "MWe", "热泵输入电功率", min_value=0.1, max_value=2000.0)
+        ],
+        expression="heat_pump_electric_power = heat_pump_thermal_power / cop",
+        is_bidirectional=True,
+    ),
+    equation_str="heat_pump_electric_power = heat_pump_thermal_power / cop",
+)
+
+
 
 # 注册所有热平衡公式
 default_formula_registry.register(enthalpy_diff_formula)
@@ -188,3 +235,5 @@ default_formula_registry.register(steam_heat_supply_formula)
 default_formula_registry.register(thermal_storage_capacity_formula)
 default_formula_registry.register(electric_heater_power_formula)
 default_formula_registry.register(molten_salt_mass_formula)
+default_formula_registry.register(heat_pump_thermal_power)
+default_formula_registry.register(heat_pump_electric_power)

@@ -390,11 +390,6 @@ class PipelineRegistry:
                     import pipelines  # noqa: F401
                 except ImportError:
                     pass
-            aliases = {
-                "scenario_valley_salt_steam": "scenario_electric_heater_salt_steam",
-            }
-            if pipeline_id in aliases and aliases[pipeline_id] in self._pipelines:
-                return self._pipelines[aliases[pipeline_id]]
             if pipeline_id in self._pipelines:
                 return self._pipelines[pipeline_id]
             raise KeyError(f"未注册的计算管道ID: '{pipeline_id}'")

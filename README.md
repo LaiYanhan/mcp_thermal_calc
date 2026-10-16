@@ -31,7 +31,8 @@
 │   ├── operation/            # 用电量、供汽量、购电成本、售汽收入、日度/年化毛收益差额
 │   └── sizing/               # SGS规格整定、电加热器整定、主变压器查表选型、熔盐采购量整定
 ├── pipelines/                # 场景计算管道库 (声明式 DAG)
-│   └── valley_molten_salt_steam.py # 基准场景：谷电熔盐储热供蒸汽完整流水线
+│   ├── electric_heater_salt_steam.py   # 基准场景：电加热器熔盐储热供汽流水线
+│   └── industrial_heat_pump_steam.py  # 新场景：工业热泵储能供汽流水线框架
 ├── server/                   # MCP 服务端接口层
 │   └── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 11 个工程与工作流工具
 ├── skills/                   # 智能体交互技能说明书
