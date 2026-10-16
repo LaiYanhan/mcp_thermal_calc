@@ -73,7 +73,7 @@ def test_full_web_api_lifecycle(client):
     assert calc_res["status"] == "CALCULATED"
     assert "result" in calc_res
     # 流量提升至 120t/h 时，电加热器与 SGS 选型相应调整
-    assert calc_res["result"]["sizing_summary"]["heater_sizing_mw"] >= 80.0
+    assert calc_res["result"]["final_outputs"]["heater_sizing_mw"] >= 80.0
 
 
 def test_operator_update_and_add_apis(client):
@@ -97,7 +97,12 @@ def test_operator_update_and_add_apis(client):
         json={
             "id": "thermal.test_custom_add",
             "name": "测试自定义换热计算",
-            "equation": "q_test = m_flow * dt_val"
+            "equation": "q_test = m_flow * dt_val",
+            "inputs": [
+                {"name": "m_flow", "unit": "/", "description": "测试输入"},
+                {"name": "dt_val", "unit": "/", "description": "测试系数"},
+            ],
+            "outputs": [{"name": "q_test", "unit": "/", "description": "测试输出"}],
         }
     )
     assert resp_add.status_code == 200

@@ -82,3 +82,9 @@ desktop.ini
 *.tmp
 *.temp
 ~$*
+
+#agent
+*.agent/
+
+# 本地工程会话与自定义算子
+.data/

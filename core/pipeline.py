@@ -3,13 +3,26 @@ Pipeline DAG execution engine and pipeline registry.
 """
 
 from typing import Any, Dict, List, Optional, Set
+from dataclasses import asdict
+from copy import deepcopy
+import math
+import re
 from core.formula import FormulaRegistry, registry as default_registry
 from core.types import (
     Pin,
     PipelineStep,
     PipelineExecutionResult,
     StepExecutionRecord,
+    FormulaOutput,
+    units_match,
 )
+from core.storage import data_directory, record_path, read_json, write_json, synchronized
+
+
+class PipelineValidationError(ValueError):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__("；".join(item["message"] for item in errors))
 
 
 class Pipeline:
@@ -25,8 +38,8 @@ class Pipeline:
         notes: str,
         required_inputs: List[Pin],
         steps: List[PipelineStep],
-        sizing_output_keys: Optional[List[str]] = None,
-        economic_output_keys: Optional[List[str]] = None,
+        layout: Optional[Dict[str, Any]] = None,
+        salt_profile: Optional[str] = None,
     ):
         self.id = id
         self.name = name
@@ -35,10 +48,98 @@ class Pipeline:
         self.notes = notes
         self.required_inputs = required_inputs
         self.steps = steps
-        self.sizing_output_keys = sizing_output_keys or []
-        self.economic_output_keys = economic_output_keys or []
+        self.layout = layout or {}
+        self.salt_profile = salt_profile
 
-    def inspect_inputs(self, provided_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, formula_registry=None) -> Dict[str, Any]:
+        """检查图契约并返回稳定拓扑序；不执行任何业务计算。"""
+        reg = formula_registry or default_registry
+        errors = []
+
+        def error(code, message, step_id=None, pin=None):
+            errors.append({"code": code, "message": message, "step_id": step_id, "pin": pin})
+
+        if not self.steps:
+            error("empty", "流水线至少需要一个算子")
+        if not isinstance(self.id, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", self.id):
+            error("identity", "流水线 ID 格式不正确")
+        sources = {}
+        for pin in self.required_inputs:
+            if pin.name in sources:
+                error("duplicate", f"重复输入 {pin.name}")
+            sources[pin.name] = (None, pin.unit)
+        steps = {}
+        contracts = {}
+        for step in self.steps:
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", step.step_id):
+                error("identity", f"步骤 ID 格式不正确：{step.step_id}", step.step_id)
+            if step.step_id in steps:
+                error("duplicate", f"重复步骤 {step.step_id}", step.step_id)
+            steps[step.step_id] = step
+            try:
+                formula = reg.get(step.formula_id)
+            except KeyError:
+                error("formula", f"未注册算子 {step.formula_id}", step.step_id)
+                continue
+            try:
+                inputs, outputs = formula.pin_contract(step.solve_target)
+            except ValueError as exc:
+                error("target", str(exc), step.step_id)
+                continue
+            contracts[step.step_id] = (inputs, outputs)
+            if set(step.input_map) != set(inputs):
+                error("pins", f"步骤 {step.step_id} 的输入引脚与算子不一致", step.step_id)
+            if set(step.output_map) != set(outputs):
+                error("pins", f"步骤 {step.step_id} 的输出引脚与算子不一致", step.step_id)
+            for pin, variable in step.output_map.items():
+                if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", variable):
+                    error("variable", f"输出变量标识不正确：{variable}", step.step_id, pin)
+                if variable in sources:
+                    error("duplicate", f"变量 {variable} 有多个来源", step.step_id, pin)
+                if pin in outputs:
+                    sources[variable] = (step.step_id, outputs[pin].unit)
+        dependencies = {step.step_id: set() for step in self.steps}
+        for step in self.steps:
+            if step.step_id not in contracts:
+                continue
+            inputs, _ = contracts[step.step_id]
+            for pin, variable in step.input_map.items():
+                if variable not in sources:
+                    error("missing_source", f"步骤 {step.step_id} 的 {pin} 待选择来源（{variable or '未连接'}）", step.step_id, pin)
+                else:
+                    producer, unit = sources[variable]
+                    if producer is not None:
+                        dependencies[step.step_id].add(producer)
+                    if pin in inputs and not units_match(unit, inputs[pin].unit):
+                        error("unit", f"步骤 {step.step_id} 的 {pin} 单位不兼容：{unit} / {inputs[pin].unit}", step.step_id, pin)
+        ordered = []
+        pending = dict(dependencies)
+        while pending:
+            ready = [key for key, parents in pending.items() if not parents]
+            if not ready:
+                error("cycle", "流水线存在循环依赖：" + ", ".join(pending))
+                break
+            for key in ready:
+                ordered.append(key)
+                pending.pop(key)
+            for parents in pending.values():
+                parents.difference_update(ready)
+        if not isinstance(self.layout, dict):
+            error("layout", "节点布局必须为对象")
+            return {"is_valid": False, "errors": errors, "order": ordered}
+        for key, position in self.layout.items():
+            if not isinstance(position, dict) or any(type(position.get(axis)) not in (int, float) or not math.isfinite(position[axis]) for axis in ("left", "top")):
+                error("layout", f"节点 {key} 的位置无效")
+        return {"is_valid": not errors, "errors": errors, "order": ordered}
+
+    def validated_steps(self, formula_registry=None) -> List[PipelineStep]:
+        validation = self.validate(formula_registry)
+        if not validation["is_valid"]:
+            raise PipelineValidationError(validation["errors"])
+        by_id = {step.step_id: step for step in self.steps}
+        return [by_id[key] for key in validation["order"]]
+
+    def inspect_inputs(self, provided_inputs: Dict[str, Any], formula_registry=None) -> Dict[str, Any]:
         """
         检查入参完整性，输出已有参数、缺失必填参数与默认值补全
         """
@@ -46,12 +147,24 @@ class Pipeline:
         filled: Dict[str, Any] = {}
         defaults_applied: Dict[str, Any] = {}
 
+        unknown = set(provided_inputs) - {p.name for p in self.required_inputs}
+        if unknown:
+            raise ValueError("未声明的工况参数：" + ", ".join(sorted(unknown)))
+
         for pin in self.required_inputs:
             if pin.name in provided_inputs and provided_inputs[pin.name] is not None:
-                val = float(provided_inputs[pin.name])
+                raw = provided_inputs[pin.name]
+                if isinstance(raw, dict):
+                    if set(raw) != {"value", "unit"} or not units_match(raw["unit"], pin.unit):
+                        raise ValueError(f"参数 {pin.name} 必须使用 {pin.unit}，请显式换算后提交")
+                    raw = raw["value"]
+                if isinstance(raw, bool):
+                    raise ValueError(f"参数 {pin.name} 不能为布尔值")
+                val = float(raw)
                 pin.validate(val)
                 filled[pin.name] = val
             elif pin.default_value is not None:
+                pin.validate(pin.default_value)
                 filled[pin.name] = pin.default_value
                 defaults_applied[pin.name] = {
                     "value": pin.default_value,
@@ -67,6 +180,25 @@ class Pipeline:
                     "max": pin.max_value
                 })
 
+        hot, cold = filled.get("salt_hot_temperature"), filled.get("salt_cold_temperature")
+        if hot is not None and cold is not None and hot <= cold:
+            raise ValueError("高温熔盐温度必须大于低温熔盐温度")
+        if self.salt_profile:
+            from constants.molten_salt import SALT_PROFILES
+            if self.salt_profile not in SALT_PROFILES:
+                raise ValueError("未知的储热介质")
+            profile = SALT_PROFILES[self.salt_profile]
+            for value in (hot, cold):
+                if value is not None and not profile.min_temp_c <= value <= profile.max_temp_c:
+                    raise ValueError(f"{profile.name} 温度必须在 {profile.min_temp_c}–{profile.max_temp_c} ℃ 内")
+        for step in self.steps:
+            formula = (formula_registry or default_registry).get(step.formula_id)
+            known_pins, _ = formula.pin_contract(step.solve_target)
+            for name, variable in step.input_map.items():
+                if variable in filled and name in known_pins:
+                    known_pins[name].validate(filled[variable])
+            if all(variable in filled for variable in step.input_map.values()):
+                formula.validate_knowns({name: filled[variable] for name, variable in step.input_map.items()}, step.solve_target)
         return {
             "is_complete": len(missing) == 0,
             "filled_inputs": filled,
@@ -83,7 +215,8 @@ class Pipeline:
         按拓扑顺序执行各步骤节点
         """
         reg = formula_registry or default_registry
-        inspection = self.inspect_inputs(inputs)
+        steps = self.validated_steps(reg)
+        inspection = self.inspect_inputs(inputs, reg)
         if not inspection["is_complete"]:
             missing_names = [m["description"] + f"({m['name']})" for m in inspection["missing_inputs"]]
             raise ValueError(f"管道 '{self.name}' 执行失败：缺少必需的输入参数: {', '.join(missing_names)}")
@@ -91,8 +224,10 @@ class Pipeline:
         # 当前变量上下文，以校验填补好的输入为初始基底
         ctx: Dict[str, Any] = dict(inspection["filled_inputs"])
         records: List[StepExecutionRecord] = []
+        outputs = {}
+        results = []
 
-        for step in self.steps:
+        for step in steps:
             formula = reg.get(step.formula_id)
             step_inputs: Dict[str, float] = {}
 
@@ -106,13 +241,21 @@ class Pipeline:
                 step_inputs[formula_pin] = float(ctx[ctx_var])
 
             # 执行公式
-            step_outputs = formula.execute(step_inputs)
+            step_outputs = formula.execute_for_target(step_inputs, step.solve_target)
+            _, output_pins = formula.pin_contract(step.solve_target)
 
             # 映射输出写回全局上下文
             for formula_out_pin, ctx_var in step.output_map.items():
                 if formula_out_pin not in step_outputs:
                     raise KeyError(f"公式 '{step.formula_id}' 未产出引脚 '{formula_out_pin}'")
                 ctx[ctx_var] = step_outputs[formula_out_pin]
+                outputs[ctx_var] = ctx[ctx_var]
+                pin = output_pins[formula_out_pin]
+                results.append(FormulaOutput(
+                    step_id=step.step_id, formula_id=step.formula_id,
+                    formula_name=formula.metadata.name, pin=formula_out_pin,
+                    variable=ctx_var, description=pin.description, unit=pin.unit, value=ctx[ctx_var],
+                ))
 
             records.append(
                 StepExecutionRecord(
@@ -125,20 +268,14 @@ class Pipeline:
                 )
             )
 
-        # 汇总主要设备选型
-        sizing_summary = {k: ctx[k] for k in self.sizing_output_keys if k in ctx}
-        # 汇总经济测算
-        economic_summary = {k: ctx[k] for k in self.economic_output_keys if k in ctx}
-
         return PipelineExecutionResult(
             pipeline_id=self.id,
             pipeline_name=self.name,
             scenario_description=self.description,
             initial_inputs=inspection["filled_inputs"],
-            final_outputs=ctx,
+            final_outputs=outputs,
             step_records=records,
-            sizing_summary=sizing_summary,
-            economic_summary=economic_summary
+            results=results
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -149,20 +286,10 @@ class Pipeline:
             "category": self.category,
             "description": self.description,
             "notes": self.notes,
-            "required_inputs": [
-                {
-                    "name": pin.name,
-                    "unit": pin.unit,
-                    "description": pin.description,
-                    "min_value": pin.min_value,
-                    "max_value": pin.max_value,
-                    "default_value": pin.default_value,
-                }
-                for pin in self.required_inputs
-            ],
+            "required_inputs": [asdict(pin) for pin in self.required_inputs],
             "steps": [step.model_dump() for step in self.steps],
-            "sizing_output_keys": self.sizing_output_keys,
-            "economic_output_keys": self.economic_output_keys,
+            "layout": deepcopy(self.layout),
+            "salt_profile": self.salt_profile,
         }
 
     @classmethod
@@ -176,6 +303,7 @@ class Pipeline:
                 min_value=p.get("min_value"),
                 max_value=p.get("max_value"),
                 default_value=p.get("default_value"),
+                kind=p.get("kind", "input"),
             )
             for p in data.get("required_inputs", [])
         ]
@@ -183,6 +311,7 @@ class Pipeline:
             PipelineStep(
                 step_id=s["step_id"],
                 formula_id=s["formula_id"],
+                solve_target=s.get("solve_target"),
                 input_map=s["input_map"],
                 output_map=s["output_map"],
                 description=s.get("description", ""),
@@ -197,15 +326,15 @@ class Pipeline:
             notes=data.get("notes", ""),
             required_inputs=required_inputs,
             steps=steps,
-            sizing_output_keys=data.get("sizing_output_keys", []),
-            economic_output_keys=data.get("economic_output_keys", []),
+            layout=data.get("layout", {}),
+            salt_profile=data.get("salt_profile"),
         )
 
     def insert_step(self, target_step_id: str, new_step: PipelineStep, position: str = "after") -> None:
         """在指定步骤的前方或后方插入新算子步骤"""
         idx = next((i for i, s in enumerate(self.steps) if s.step_id == target_step_id), -1)
         if idx == -1:
-            self.steps.append(new_step)
+            raise ValueError(f"不存在的插入目标：{target_step_id}")
         else:
             insert_idx = idx + 1 if position == "after" else idx
             self.steps.insert(insert_idx, new_step)
@@ -234,7 +363,23 @@ class PipelineRegistry:
         self._pipelines: Dict[str, Pipeline] = {}
 
     def register(self, pipeline: Pipeline) -> None:
+        if pipeline.id in self._pipelines:
+            raise ValueError(f"流水线 {pipeline.id} 已存在")
         self._pipelines[pipeline.id] = pipeline
+
+    @synchronized
+    def save_pipeline(self, pipeline: Pipeline) -> None:
+        pipeline.validated_steps()
+        if pipeline.id in self._pipelines:
+            raise ValueError(f"流水线 {pipeline.id} 已存在")
+        write_json(record_path("pipelines", pipeline.id), pipeline.to_dict())
+        self.register(pipeline)
+
+    def load_saved(self) -> None:
+        for path in (data_directory() / "pipelines").glob("*.json"):
+            pipeline = Pipeline.from_dict(read_json(path))
+            pipeline.validated_steps()
+            self.register(pipeline)
 
     def get(self, pipeline_id: str) -> Pipeline:
         if pipeline_id not in self._pipelines:

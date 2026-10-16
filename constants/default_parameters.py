@@ -11,7 +11,7 @@ DEFAULT_VALLEY_SALT_STEAM_PARAMS: Dict[str, Dict[str, Any]] = {
     "steam_pressure": {
         "value": 1.5,
         "unit": "MPa",
-        "description": "蒸汽工作表压/绝对压力（默认 1.5 MPa）",
+        "description": "蒸汽绝对工作压力（默认 1.5 MPa）",
         "min_value": 0.1,
         "max_value": 25.0,
     },
@@ -32,7 +32,7 @@ DEFAULT_VALLEY_SALT_STEAM_PARAMS: Dict[str, Dict[str, Any]] = {
     "feedwater_pressure": {
         "value": 0.1,
         "unit": "MPa",
-        "description": "锅炉/换热器给水压力（默认 0.1 MPa）",
+        "description": "锅炉/换热器给水绝对压力（默认 0.1 MPa）",
         "min_value": 0.05,
         "max_value": 25.0,
     },

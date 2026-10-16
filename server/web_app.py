@@ -1,215 +1,179 @@
-"""
-Lightweight local Starlette web application and REST API for Visual Pipeline Editor.
-Runs seamlessly alongside the MCP server on http://127.0.0.1:8765.
-"""
+"""本地 Starlette 编辑器接口；校验和计算由 core 统一处理。"""
 
-import json
-import os
 import threading
-from typing import Any, Dict, Optional
+import socket
+from functools import wraps
+from pathlib import Path
+from typing import Optional
 import uvicorn
+from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
-from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 import formulas
 import pipelines
-from core.formula import AlgebraicFormula, default_formula_registry
-from core.pipeline import pipeline_registry
-from core.state_machine import WorkflowState, workflow_manager, StateTransitionError
-from core.types import FormulaMetadata, FormulaType, Pin
+from core.formula import default_formula_registry
+from core.pipeline import PipelineValidationError
+from core.state_machine import workflow_manager, StateTransitionError
+from core.storage import engine_lock
 
 WEB_SERVER_HOST = "127.0.0.1"
 WEB_SERVER_PORT = 8765
+ROOT = Path(__file__).resolve().parents[1]
 _server_thread: Optional[threading.Thread] = None
 
 
-async def index_endpoint(request: Request) -> Response:
-    """提供纯净可视化流水线编辑器 HTML 界面"""
-    html_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui_prototype.html")
-    if os.path.exists(html_path):
-        with open(html_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return HTMLResponse(content)
-    return HTMLResponse("<h1>ui_prototype.html 未找到</h1>", status_code=404)
+def api_endpoint(function):
+    @wraps(function)
+    async def wrapped(request):
+        try:
+            return await function(request)
+        except PipelineValidationError as error:
+            return JSONResponse({"error": str(error), "validation": {"is_valid": False, "errors": error.errors}}, status_code=400)
+        except (StateTransitionError, ValueError, KeyError, TypeError, ValidationError, ArithmeticError) as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
+    return wrapped
 
 
-async def get_session_endpoint(request: Request) -> Response:
-    """获取指定会话的完整图纸拓扑、参数与算子数据"""
-    session_id = request.path_params["session_id"]
-    # 确保初始化时有默认基准场景
-    session = workflow_manager.get_or_create_session(session_id)
-    if not session.scenario_id:
-        workflow_manager.propose_existing_scenario(
-            session_id=session_id,
-            scenario_id="scenario_valley_salt_steam",
-            user_requirements="基准工况",
-            initial_inputs={}
-        )
-
-    data = workflow_manager.get_session_view(session_id)
-    return JSONResponse(data)
-
-
-async def update_pipeline_endpoint(request: Request) -> Response:
-    """前端可视化修改流水线拓扑后保存"""
-    session_id = request.path_params["session_id"]
+async def request_body(request):
+    if int(request.headers.get("content-length", "0")) > 200000:
+        raise ValueError("请求内容过大")
     body = await request.json()
-    workflow_manager.update_pipeline_in_session(session_id, body)
-    return JSONResponse({"status": "SUCCESS", "message": "流水线拓扑已同步更新"})
+    if not isinstance(body, dict):
+        raise ValueError("请求必须是 JSON 对象")
+    return body
 
 
-async def confirm_scenario_endpoint(request: Request) -> Response:
-    """中断点 1：人工确认场景拓扑并进入参数阶段"""
+class LocalEditorMiddleware:
+    """只接受编辑器同源写入；非浏览器 MCP/本地客户端仍可直接调用。"""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            request = Request(scope)
+            origin = request.headers.get("origin")
+            expected = f"{request.url.scheme}://{request.url.netloc}"
+            if (origin and origin != expected) or request.headers.get("sec-fetch-site") == "cross-site":
+                await JSONResponse({"error": "仅允许本地编辑器同源请求"}, status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+async def index_endpoint(request):
+    return HTMLResponse((ROOT / "ui_prototype.html").read_text(encoding="utf-8"))
+
+
+async def editor_script_endpoint(request):
+    return Response((ROOT / "ui_editor.js").read_text(encoding="utf-8"), media_type="application/javascript")
+
+
+@api_endpoint
+async def get_session_endpoint(request):
     session_id = request.path_params["session_id"]
-    body = await request.json()
-    confirmed = body.get("confirmed", True)
-    feedback = body.get("feedback", "")
-    try:
-        res = workflow_manager.confirm_scenario(session_id, confirmed=confirmed, feedback=feedback)
-        return JSONResponse(res)
-    except StateTransitionError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+    with engine_lock:
+        session = workflow_manager.get_or_create_session(session_id)
+        if not session.scenario_id:
+            workflow_manager.propose_existing_scenario(session_id, "scenario_valley_salt_steam", "基准工况", {})
+        return JSONResponse(workflow_manager.get_session_view(session_id))
 
 
-async def update_parameters_endpoint(request: Request) -> Response:
-    """中断点 2：实时保存前端填报微调的工况参数"""
-    session_id = request.path_params["session_id"]
-    body = await request.json()
-    params = body.get("parameters", {})
-    res = workflow_manager.update_parameters_in_session(session_id, params)
-    return JSONResponse(res)
+@api_endpoint
+async def update_pipeline_endpoint(request):
+    body = await request_body(request)
+    if "pipeline" in body:
+        if type(body.get("allow_incomplete", False)) is not bool:
+            raise ValueError("allow_incomplete 必须为布尔值")
+        data, allow_incomplete = body["pipeline"], body.get("allow_incomplete", False)
+    else:
+        data, allow_incomplete = body, False
+    validation = workflow_manager.update_pipeline_in_session(request.path_params["session_id"], data, allow_incomplete)
+    return JSONResponse({"status": "SUCCESS" if validation["is_valid"] else "DRAFT", "validation": validation})
 
 
-async def confirm_parameters_endpoint(request: Request) -> Response:
-    """中断点 2：人工确认参数并授权程序计算"""
-    session_id = request.path_params["session_id"]
-    body = await request.json()
-    confirmed = body.get("confirmed", True)
-    feedback = body.get("feedback", "")
-    try:
-        res = workflow_manager.confirm_parameters(session_id, confirmed=confirmed, feedback=feedback)
-        return JSONResponse(res)
-    except StateTransitionError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+@api_endpoint
+async def confirm_scenario_endpoint(request):
+    body = await request_body(request)
+    return JSONResponse(workflow_manager.confirm_scenario(request.path_params["session_id"], body.get("confirmed"), body.get("feedback", "")))
 
 
-async def calculate_endpoint(request: Request) -> Response:
-    """执行确定性程序计算并返回多目标成果"""
-    session_id = request.path_params["session_id"]
-    try:
-        res = workflow_manager.execute_calculation(session_id)
-        return JSONResponse(res)
-    except StateTransitionError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+@api_endpoint
+async def update_parameters_endpoint(request):
+    body = await request_body(request)
+    if not isinstance(body.get("parameters"), dict):
+        raise ValueError("parameters 必须为对象")
+    return JSONResponse(workflow_manager.update_parameters_in_session(request.path_params["session_id"], body["parameters"]))
 
 
-async def list_formulas_endpoint(request: Request) -> Response:
-    """获取所有已注册的原子算子库列表"""
-    formulas_list = default_formula_registry.to_ai_catalog()
-    return JSONResponse({"formulas": formulas_list})
+@api_endpoint
+async def confirm_parameters_endpoint(request):
+    body = await request_body(request)
+    return JSONResponse(workflow_manager.confirm_parameters(request.path_params["session_id"], body.get("confirmed"), body.get("feedback", "")))
 
 
-async def update_operator_endpoint(request: Request) -> Response:
-    """原地全局修改原子算子名称或代数公式（遵循 ADR 0006）"""
-    body = await request.json()
-    op_id = body.get("operator_id")
-    new_name = body.get("name")
-    new_formula = body.get("formula")
-    new_desc = body.get("description")
-
-    try:
-        f = default_formula_registry.get(op_id)
-        if new_name:
-            f.metadata.name = new_name
-        if new_desc:
-            f.metadata.description = new_desc
-        if new_formula and isinstance(f, AlgebraicFormula):
-            f.metadata.notes = new_formula
-            # 若包含等号，重新初始化 SymPy 方程
-            if "=" in new_formula:
-                f.__init__(f.metadata, new_formula)
-
-        return JSONResponse({"status": "SUCCESS", "message": f"算子 {op_id} 已全局原地更新生效！"})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+@api_endpoint
+async def calculate_endpoint(request):
+    return JSONResponse(workflow_manager.execute_calculation(request.path_params["session_id"]))
 
 
-async def add_operator_endpoint(request: Request) -> Response:
-    """新增自定义原子算子"""
-    body = await request.json()
-    op_id = body.get("id")
-    op_name = body.get("name")
-    op_eq = body.get("equation", "y = x")
+@api_endpoint
+async def list_formulas_endpoint(request):
+    return JSONResponse({"formulas": default_formula_registry.to_ai_catalog()})
 
-    if not op_id or not op_name:
-        return JSONResponse({"error": "缺少算子ID或名称"}, status_code=400)
 
-    try:
-        new_f = AlgebraicFormula(
-            metadata=FormulaMetadata(
-                id=op_id,
-                name=op_name,
-                category="custom",
-                description="由工程师在前端界面直接创建的原子算子",
-                notes=op_eq,
-                formula_type=FormulaType.ALGEBRAIC,
-                inputs=[],
-                outputs=[],
-                expression=op_eq,
-                is_bidirectional=True
-            ),
-            equation_str=op_eq
-        )
-        default_formula_registry.register(new_f)
-        return JSONResponse({"status": "SUCCESS", "message": f"算子 {op_id} 已成功注册至全局公式库！"})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+@api_endpoint
+async def update_operator_endpoint(request):
+    body = await request_body(request)
+    with engine_lock:
+        formula = default_formula_registry.save_operator(body, update=True)
+        workflow_manager.invalidate_formula(formula.metadata.id)
+    return JSONResponse({"status": "SUCCESS", "message": "算子已全局更新，请重新确认相关场景"})
+
+
+@api_endpoint
+async def add_operator_endpoint(request):
+    body = await request_body(request)
+    default_formula_registry.save_operator(body)
+    return JSONResponse({"status": "SUCCESS", "message": "算子已保存，可选装到流水线"})
 
 
 routes = [
-    Route("/", endpoint=index_endpoint, methods=["GET"]),
-    Route("/editor", endpoint=index_endpoint, methods=["GET"]),
-    Route("/api/session/{session_id}", endpoint=get_session_endpoint, methods=["GET"]),
-    Route("/api/session/{session_id}/pipeline", endpoint=update_pipeline_endpoint, methods=["POST"]),
-    Route("/api/session/{session_id}/confirm_scenario", endpoint=confirm_scenario_endpoint, methods=["POST"]),
-    Route("/api/session/{session_id}/parameters", endpoint=update_parameters_endpoint, methods=["POST"]),
-    Route("/api/session/{session_id}/confirm_parameters", endpoint=confirm_parameters_endpoint, methods=["POST"]),
-    Route("/api/session/{session_id}/calculate", endpoint=calculate_endpoint, methods=["POST"]),
-    Route("/api/formulas", endpoint=list_formulas_endpoint, methods=["GET"]),
-    Route("/api/operator/update", endpoint=update_operator_endpoint, methods=["POST"]),
-    Route("/api/operator/add", endpoint=add_operator_endpoint, methods=["POST"]),
+    Route("/", index_endpoint),
+    Route("/editor", index_endpoint),
+    Route("/ui_editor.js", editor_script_endpoint),
+    Route("/api/session/{session_id}", get_session_endpoint),
+    Route("/api/session/{session_id}/pipeline", update_pipeline_endpoint, methods=["POST"]),
+    Route("/api/session/{session_id}/confirm_scenario", confirm_scenario_endpoint, methods=["POST"]),
+    Route("/api/session/{session_id}/parameters", update_parameters_endpoint, methods=["POST"]),
+    Route("/api/session/{session_id}/confirm_parameters", confirm_parameters_endpoint, methods=["POST"]),
+    Route("/api/session/{session_id}/calculate", calculate_endpoint, methods=["POST"]),
+    Route("/api/formulas", list_formulas_endpoint),
+    Route("/api/operator/update", update_operator_endpoint, methods=["POST"]),
+    Route("/api/operator/add", add_operator_endpoint, methods=["POST"]),
 ]
 
-middleware = [
-    Middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-]
-
-app = Starlette(debug=True, routes=routes, middleware=middleware)
+app = Starlette(debug=False, routes=routes, middleware=[
+    Middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"]),
+    Middleware(LocalEditorMiddleware),
+])
 
 
 def ensure_web_server_running(host: str = WEB_SERVER_HOST, port: int = WEB_SERVER_PORT) -> str:
-    """
-    确保轻量级 Web 服务在后台守护线程中启动运行，返回访问基地址
-    """
     global _server_thread
-    base_url = f"http://{host}:{port}"
     if _server_thread is not None and _server_thread.is_alive():
-        return base_url
-
-    config = uvicorn.Config(app=app, host=host, port=port, log_level="warning")
-    server = uvicorn.Server(config=config)
-
-    def _run():
-        server.run()
-
-    _server_thread = threading.Thread(target=_run, daemon=True)
+        return f"http://{host}:{port}"
+    # 先占用监听套接字，避免把其他进程的同端口编辑器误认成本会话。
+    sock = socket.socket()
+    try:
+        sock.bind((host, port))
+        sock.listen(128)
+    except OSError:
+        sock.close()
+        raise RuntimeError(f"编辑器端口 {port} 已被占用，请先关闭独立 Web 服务再从 MCP 打开")
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
+    _server_thread = threading.Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
     _server_thread.start()
-    return base_url
+    return f"http://{host}:{port}"
