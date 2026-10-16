@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工业热工流程与参数可视化核对系统 (UI 改造演示稿 - V2 水平顺序版)</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: {
+              bg: '#FAF7EE',        // 典雅暖米白画布底色
+              card: '#FFFFFF',
+              border: '#E2DDD2',
+              borderDark: '#78716C',
+              text: '#0F172A',       // 纯正高对比度深炭黑
+              muted: '#475569',
+              yellow: '#FFD600',     // 工业暖黄
+              yellowHover: '#E5C000',
+            },
+            softPin: {
+              inText: '#14532D',     // 深草绿
+              inBg: '#F0FDF4',
+              inBorder: '#BBF7D0',
+              inDot: '#16A34A',
+              
+              opText: '#1E3A8A',     // 板岩蓝
+              opBg: '#EFF6FF',
+              opBorder: '#BFDBFE',
+              opDot: '#2563EB',
+              
+              constText: '#78350F',  // 暖沙金驼
+              constBg: '#FEFCE8',
+              constBorder: '#FEF08A',
+              constDot: '#D97706',
+              
+              outText: '#581C87',    // 雅致深紫
+              outBg: '#FAF5FF',
+              outBorder: '#E9D5FF',
+              outDot: '#9333EA',
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Consolas', 'monospace'],
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+    .bg-paper-grid {
+      background-color: #FAF7EE;
+      background-image: radial-gradient(#DDD6C6 1.2px, transparent 1.2px);
+      background-size: 24px 24px;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #D8D2C2;
+      border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #EFECE4;
+    }
+
+    /* 节点极简卡片：可拖拽感 */
+    .flow-node-box {
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+      transition: box-shadow 0.16s ease-out, border-color 0.16s ease-out, transform 0.12s ease-out;
+      cursor: grab;
+      user-select: none;
+    }
+    .flow-node-box:active {
+      cursor: grabbing;
+    }
+    .flow-node-box:hover {
+      border-color: #0F172A;
+      box-shadow: 0 6px 18px -3px rgba(15, 23, 42, 0.12);
+    }
+    .flow-node-box.selected {
+      border-color: #0F172A !important;
+      box-shadow: 0 0 0 2px #FFD600, 0 8px 20px -3px rgba(15, 23, 42, 0.18) !important;
+    }
+
+    /* 超紧凑微型常量胶囊 (130px, 纯中文+数值, 零英文冗余) */
+    .node-constant {
+      width: 130px;
+      background: #FEFCE8;
+      border: 1px solid #FEF08A;
+      border-radius: 6px;
+    }
+    .node-constant:hover {
+      border-color: #D97706;
+    }
+
+    /* 超紧凑微型输入胶囊 (130px, 纯中文+数值, 零英文冗余) */
+    .node-input {
+      width: 130px;
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+      border-radius: 6px;
+    }
+    .node-input:hover {
+      border-color: #16A34A;
+    }
+
+    /* 核心算子标准卡片 (270px 经典宽度，公式+引脚分区) */
+    .node-step {
+      width: 270px;
+      background: #FFFFFF;
+      border: 1px solid #BFDBFE;
+      border-radius: 8px;
+    }
+
+    /* 连线高保真样式 */
+    .wire-base {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: stroke-width 0.15s ease, stroke 0.15s ease, opacity 0.15s ease;
+    }
+    .wire-input {
+      stroke: #16A34A;
+      stroke-width: 1.8;
+      opacity: 0.75;
+    }
+    .wire-constant {
+      stroke: #D97706;
+      stroke-width: 1.8;
+      stroke-dasharray: 4 2;
+      opacity: 0.75;
+    }
+    .wire-step {
+      stroke: #2563EB;
+      stroke-width: 2.0;
+      opacity: 0.85;
+    }
+    .wire-highlight {
+      stroke: #2563EB !important;
+      stroke-width: 3.2 !important;
+      opacity: 1 !important;
+      filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.4));
+    }
+    .wire-dimmed {
+      opacity: 0.12 !important;
+    }
+
+    .canvas-panning {
+      cursor: grab;
+    }
+    .canvas-panning:active {
+      cursor: grabbing;
+    }
+  </style>
+</head>
+<body class="bg-paper-bg text-paper-text font-sans antialiased h-screen flex flex-col overflow-hidden select-none">
+  <!-- 顶部控制栏 (保持所有原有功能、文字与接口完全一致) -->
+  <header class="h-14 bg-white border-b border-paper-border px-6 flex items-center justify-between shrink-0 z-30">
+    <div class="flex items-center gap-4">
+      <div class="flex bg-[#EFECE4] p-1 rounded border border-[#DFD9CB] text-xs">
+        <button id="tab-stage-1" onclick="switchStage(1)" class="px-4 py-1 rounded font-bold bg-white shadow-xs">阶段 01</button>
+        <button id="tab-stage-2" onclick="switchStage(2)" class="px-4 py-1 rounded font-bold text-paper-muted">阶段 02</button>
+      </div>
+      <span id="stage-desc-hint" class="text-xs font-bold text-slate-700">流程拓扑审核</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="openAddOperatorModal()" class="px-3 py-1.5 text-xs font-bold border border-slate-300 bg-white hover:bg-slate-50 rounded flex items-center gap-1 transition-all">+ 新增算子</button>
+      <button onclick="openAddConstantModal()" class="px-3 py-1.5 text-xs font-bold border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded flex items-center gap-1 transition-all">+ 新增常量</button>
+      <button onclick="resetLayoutPositions()" class="px-3 py-1.5 text-xs text-slate-600 hover:text-black font-bold">恢复默认排版</button>
+      <button id="btn-main-action" onclick="handlePrimaryAction()" class="px-5 py-1.5 text-xs font-black bg-paper-yellow hover:bg-paper-yellowHover text-black border border-black shadow-[2px_2px_0px_#0F172A] transition-transform active:translate-x-0.5 active:translate-y-0.5">确认场景拓扑</button>
+    </div>
+  </header>
+
+  <div id="editor-message" role="alert" class="hidden px-6 py-2 text-xs font-bold bg-red-50 text-red-800 border-b border-red-200"></div>
+
+  <!-- 主视口：DAG 画布与侧边栏抽屉 -->
+  <div class="flex-1 flex overflow-hidden relative">
+    <main id="canvas-container" class="flex-1 overflow-hidden bg-paper-grid relative canvas-panning">
+      <div id="dag-workspace" class="relative select-text" style="transform-origin:0 0;margin:30px 40px;will-change:transform">
+        <!-- SVG 矢量连线层 -->
+        <svg id="svg-wiring-layer" class="absolute inset-0 pointer-events-none" style="overflow:visible" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-step" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/>
+            </marker>
+            <marker id="arrow-input" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#16A34A"/>
+            </marker>
+            <marker id="arrow-const" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#D97706"/>
+            </marker>
+            <marker id="arrow-highlight" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/>
+            </marker>
+          </defs>
+        </svg>
+
+        <!-- 节点渲染容器 -->
+        <div id="node-layer"></div>
+
+        <!-- 浮动节点工具条 -->
+        <div id="node-floating-toolbar" class="hidden absolute z-30 bg-slate-900 text-white rounded shadow-xl px-2 py-1 flex gap-2 text-xs font-bold">
+          <button onclick="triggerInsertBefore()">⬅ 前插算子</button>
+          <button onclick="triggerInsertAfter()">➡ 后插算子</button>
+          <button onclick="triggerReplace()" class="text-yellow-300">⇄ 替换</button>
+          <button onclick="triggerDeleteCurrent()" class="text-red-300">删除</button>
+        </div>
+      </div>
+
+      <!-- 四色语义图例 (严格匹配系统原图例与 GLOSSARY.md) -->
+      <div class="absolute bottom-3 left-5 bg-white/95 px-4 py-2 border border-paper-border rounded shadow-xs flex gap-5 text-[11px] font-bold pointer-events-none">
+        <span class="text-softPin-inText flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-softPin-inDot"></span>输入引脚</span>
+        <span class="text-softPin-opText flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-softPin-opDot"></span>公式算子</span>
+        <span class="text-softPin-constText flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-softPin-constDot"></span>工程常量</span>
+        <span class="text-softPin-outText flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-softPin-outDot"></span>输出成果</span>
+      </div>
+    </main>
+
+    <!-- 算子属性与流水线操作抽屉 -->
+    <aside id="operator-drawer" class="absolute top-0 right-0 bottom-0 w-[390px] max-w-full bg-white border-l border-paper-border shadow-xl z-40 flex flex-col translate-x-full transition-transform">
+      <div class="px-5 py-4 border-b border-paper-border flex justify-between font-black text-sm"><span id="drawer-title">算子属性与流水线操作</span><button onclick="closeDrawer()" class="text-slate-400 hover:text-slate-700">✕</button></div>
+      <div id="drawer-actions" class="p-3 flex justify-between text-xs border-b border-paper-border">
+        <button onclick="triggerInsertBefore()" class="px-2 py-1 hover:bg-slate-100 rounded">⬅ 前插</button>
+        <button onclick="triggerInsertAfter()" class="px-2 py-1 hover:bg-slate-100 rounded">➡ 后插</button>
+        <button onclick="triggerReplace()" class="px-2 py-1 hover:bg-slate-100 rounded text-blue-700 font-bold">⇄ 替换</button>
+        <button onclick="triggerDeleteCurrent()" class="px-2 py-1 hover:bg-red-50 text-red-700 font-bold rounded">删除</button>
+      </div>
+      <div class="flex-1 overflow-auto p-5 space-y-4 text-xs">
+        <label class="block font-bold">算子标识<input id="drawer-id" readonly class="mt-1 w-full p-2 border rounded bg-slate-50 font-mono text-slate-600"></label>
+        <label class="block font-bold">名称<input id="drawer-name" class="mt-1 w-full p-2 border rounded"></label>
+        <label id="drawer-formula-label" class="block font-bold">代数公式<textarea id="drawer-formula" rows="3" class="mt-1 w-full p-2 border border-blue-300 rounded font-mono text-blue-950"></textarea></label>
+        <label id="drawer-desc-label" class="block font-bold">工程物理机制<textarea id="drawer-desc" rows="3" class="mt-1 w-full p-2 border rounded"></textarea></label>
+        <label id="drawer-target-label" class="block font-bold">本次计算<select id="drawer-target" onchange="changeSolveTarget()" class="mt-1 w-full p-2 border rounded"></select></label>
+        <div id="drawer-pins" class="space-y-3"></div>
+      </div>
+      <div class="p-4 border-t flex justify-end gap-3"><button onclick="closeDrawer()" class="text-xs font-bold px-3 py-2">取消</button><button onclick="saveDrawer()" class="px-4 py-2 bg-slate-900 text-white rounded text-xs font-bold">保存修改</button></div>
+    </aside>
+  </div>
+
+  <!-- 新增算子模态框 -->
+  <div id="modal-add-op" class="hidden fixed inset-0 z-50 bg-black/25 flex items-center justify-center">
+    <div class="bg-white rounded shadow-xl w-[520px] max-h-[90vh] overflow-auto border border-paper-border">
+      <div class="px-5 py-4 bg-paper-yellow flex justify-between font-black text-sm"><span id="modal-title">选装原子算子</span><button onclick="closeAddOperatorModal()">✕</button></div>
+      <div class="p-5 space-y-4 text-xs">
+        <label class="block font-bold">选择算子<select id="select-lib-op" onchange="changeOperatorSelection()" class="mt-1 w-full p-2.5 border rounded"></select></label>
+        <div id="new-operator-fields" class="hidden space-y-3">
+          <label class="block font-bold">新算子标识<input id="new-id" placeholder="custom.heat" class="w-full p-2 border rounded font-mono mt-1"></label>
+          <label class="block font-bold">中文名称<input id="new-name" class="w-full p-2 border rounded mt-1"></label>
+          <label class="block font-bold">代数公式<input id="new-eq" placeholder="y = x * 2" oninput="buildNewPinFields(true)" class="w-full p-2 border border-blue-300 rounded font-mono mt-1"></label>
+          <div id="new-pins" class="space-y-2"></div>
+        </div>
+      </div>
+      <div class="px-5 py-3 bg-paper-bg flex justify-end gap-3"><button onclick="closeAddOperatorModal()" class="text-xs font-bold">取消</button><button onclick="confirmNewOperator()" class="px-4 py-2 bg-paper-yellow border border-black text-xs font-black">确定插入流水线</button></div>
+    </div>
+  </div>
+
+  <!-- 新增工程常量模态框 -->
+  <div id="modal-add-const" class="hidden fixed inset-0 z-50 bg-black/25 flex items-center justify-center">
+    <div class="bg-white rounded shadow-xl w-[400px] border border-paper-border">
+      <div class="px-5 py-4 bg-amber-100 flex justify-between text-sm font-black"><span>新增工程常量</span><button onclick="closeAddConstantModal()">✕</button></div>
+      <div class="p-5 space-y-3 text-xs">
+        <label class="block font-bold">变量标识<input id="new-const-id" placeholder="custom_efficiency" class="w-full mt-1 p-2 border rounded font-mono"></label>
+        <label class="block font-bold">中文名称<input id="new-const-name" class="w-full mt-1 p-2 border rounded"></label>
+        <label class="block font-bold">数值<input id="new-const-val" type="number" step="any" class="w-full mt-1 p-2 border rounded"></label>
+        <label class="block font-bold">单位<input id="new-const-unit" value="/" class="w-full mt-1 p-2 border rounded"></label>
+      </div>
+      <div class="px-5 py-3 bg-paper-bg flex justify-end gap-3"><button onclick="closeAddConstantModal()" class="text-xs font-bold">取消</button><button onclick="confirmNewConstant()" class="px-4 py-2 bg-amber-400 border border-black text-xs font-black">添加常量至图纸</button></div>
+    </div>
+  </div>
+
+  <!-- 演示驱动核心逻辑 -->
+  <script>
+    "use strict";
+
+    const clone = v => JSON.parse(JSON.stringify(v));
+    const escapeHtml = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+    const sameUnit = (a, b) => {
+      const m = {MWt: "MW", MWe: "MW", MWht: "MWh", "°C": "℃", "kJ/(kg·K)": "kJ/(kg·℃)", "1": "/"};
+      return (m[a] || a) === (m[b] || b);
+    };
+
+    const $ = id => document.getElementById(id);
+
+    // 标准完整基准数据（与后端 valley_molten_salt_steam_pipeline 100% 结构一致）
+    const BASELINE_DATA = {
+      pipeline: {
+        id: "scenario_valley_salt_steam",
+        name: "谷电熔盐储热供蒸汽计算场景",
+        layout: {},
+        required_inputs: [
+          {name: "steam_pressure", unit: "MPa", description: "蒸汽工作压力", default_value: 1.5, kind: "input"},
+          {name: "steam_temperature", unit: "℃", description: "蒸汽供汽温度", default_value: 200.0, kind: "input"},
+          {name: "feedwater_pressure", unit: "MPa", description: "给水绝对压力", default_value: 0.1, kind: "input"},
+          {name: "feedwater_temperature", unit: "℃", description: "给水水温", default_value: 20.0, kind: "input"},
+          {name: "steam_mass_flow", unit: "t/h", description: "额定蒸汽流量", default_value: 100.0, kind: "input"},
+          {name: "heat_exchanger_efficiency", unit: "/", description: "换热综合效率", default_value: 0.99, kind: "constant"},
+          {name: "steam_supply_hours", unit: "h", description: "每日供汽时长", default_value: 8.0, kind: "input"},
+          {name: "thermal_storage_efficiency", unit: "/", description: "储热综合效率", default_value: 0.99, kind: "constant"},
+          {name: "valley_electricity_hours", unit: "h", description: "每日谷电时长", default_value: 8.0, kind: "input"},
+          {name: "electric_heater_efficiency", unit: "/", description: "电加热器效率", default_value: 0.985, kind: "constant"},
+          {name: "salt_hot_temperature", unit: "℃", description: "高温熔盐温度", default_value: 390.0, kind: "constant"},
+          {name: "salt_cold_temperature", unit: "℃", description: "低温熔盐温度", default_value: 190.0, kind: "constant"},
+          {name: "salt_specific_heat", unit: "kJ/(kg·℃)", description: "熔盐平均比热容", default_value: 1.42, kind: "constant"},
+          {name: "salt_safety_margin", unit: "/", description: "熔盐安全冗余", default_value: 1.10, kind: "constant"},
+          {name: "annual_operating_days", unit: "d", description: "年运行天数", default_value: 330.0, kind: "input"},
+          {name: "valley_electricity_price", unit: "元/kWh", description: "低谷电价", default_value: 0.30, kind: "input"},
+          {name: "steam_market_price", unit: "元/t", description: "蒸汽市售价格", default_value: 180.0, kind: "input"}
+        ],
+        steps: [
+          {step_id: "step_1_steam_enthalpy", formula_id: "thermal.steam_enthalpy", input_map: {steam_pressure: "steam_pressure", steam_temperature: "steam_temperature"}, output_map: {steam_enthalpy: "steam_enthalpy"}},
+          {step_id: "step_2_water_enthalpy", formula_id: "thermal.water_enthalpy", input_map: {feedwater_pressure: "feedwater_pressure", feedwater_temperature: "feedwater_temperature"}, output_map: {feedwater_enthalpy: "feedwater_enthalpy"}},
+          {step_id: "step_3_enthalpy_diff", formula_id: "thermal.enthalpy_diff", input_map: {steam_enthalpy: "steam_enthalpy", feedwater_enthalpy: "feedwater_enthalpy"}, output_map: {enthalpy_diff: "enthalpy_diff"}},
+          {step_id: "step_4_theoretical_power", formula_id: "thermal.theoretical_power", input_map: {steam_mass_flow: "steam_mass_flow", enthalpy_diff: "enthalpy_diff"}, output_map: {theoretical_power: "theoretical_power"}},
+          {step_id: "step_5_sgs_power", formula_id: "thermal.sgs_power", input_map: {theoretical_power: "theoretical_power", heat_exchanger_efficiency: "heat_exchanger_efficiency"}, output_map: {sgs_power: "sgs_power"}},
+          {step_id: "step_6_steam_heat_supply", formula_id: "thermal.steam_heat_supply", input_map: {sgs_power: "sgs_power", steam_supply_hours: "steam_supply_hours"}, output_map: {steam_heat_supply: "steam_heat_supply"}},
+          {step_id: "step_7_thermal_storage_capacity", formula_id: "thermal.thermal_storage_capacity", input_map: {steam_heat_supply: "steam_heat_supply", thermal_storage_efficiency: "thermal_storage_efficiency"}, output_map: {thermal_storage_capacity: "thermal_storage_capacity"}},
+          {step_id: "step_8_electric_heater_power", formula_id: "thermal.electric_heater_power", input_map: {thermal_storage_capacity: "thermal_storage_capacity", valley_electricity_hours: "valley_electricity_hours", electric_heater_efficiency: "electric_heater_efficiency"}, output_map: {electric_heater_power: "electric_heater_power"}},
+          {step_id: "step_9_molten_salt_mass", formula_id: "thermal.molten_salt_mass", input_map: {thermal_storage_capacity: "thermal_storage_capacity", salt_specific_heat: "salt_specific_heat", salt_hot_temperature: "salt_hot_temperature", salt_cold_temperature: "salt_cold_temperature", salt_safety_margin: "salt_safety_margin"}, output_map: {salt_mass: "salt_mass"}},
+          {step_id: "step_10_sgs_sizing", formula_id: "sizing.sgs_sizing", input_map: {sgs_power: "sgs_power"}, output_map: {sgs_sizing_mw: "sgs_sizing_mw"}},
+          {step_id: "step_11_heater_sizing", formula_id: "sizing.heater_sizing", input_map: {electric_heater_power: "electric_heater_power"}, output_map: {heater_sizing_mw: "heater_sizing_mw"}},
+          {step_id: "step_12_transformer_sizing", formula_id: "sizing.transformer_sizing", input_map: {heater_sizing_mw: "heater_sizing_mw"}, output_map: {transformer_capacity_mva: "transformer_capacity_mva"}},
+          {step_id: "step_13_salt_mass_roundup", formula_id: "sizing.salt_mass_roundup", input_map: {salt_mass: "salt_mass"}, output_map: {salt_mass_tons: "salt_mass_tons"}},
+          {step_id: "step_14_daily_electricity", formula_id: "operation.daily_electricity", input_map: {electric_heater_power: "electric_heater_power", valley_electricity_hours: "valley_electricity_hours"}, output_map: {daily_power_mwh: "daily_power_mwh"}},
+          {step_id: "step_15_annual_electricity", formula_id: "operation.annual_electricity", input_map: {daily_power_mwh: "daily_power_mwh", annual_operating_days: "annual_operating_days"}, output_map: {annual_power_wan_kwh: "annual_power_wan_kwh"}},
+          {step_id: "step_16_daily_steam_production", formula_id: "operation.daily_steam_production", input_map: {steam_mass_flow: "steam_mass_flow", steam_supply_hours: "steam_supply_hours"}, output_map: {daily_steam_tons: "daily_steam_tons"}},
+          {step_id: "step_17_annual_steam_production", formula_id: "operation.annual_steam_production", input_map: {daily_steam_tons: "daily_steam_tons", annual_operating_days: "annual_operating_days"}, output_map: {annual_steam_wan_tons: "annual_steam_wan_tons"}},
+          {step_id: "step_18_daily_electricity_cost", formula_id: "operation.daily_electricity_cost", input_map: {daily_power_mwh: "daily_power_mwh", valley_electricity_price: "valley_electricity_price"}, output_map: {daily_electricity_cost: "daily_electricity_cost"}},
+          {step_id: "step_19_daily_steam_revenue", formula_id: "operation.daily_steam_revenue", input_map: {daily_steam_tons: "daily_steam_tons", steam_market_price: "steam_market_price"}, output_map: {daily_steam_revenue: "daily_steam_revenue"}},
+          {step_id: "step_20_daily_operating_spread", formula_id: "operation.daily_operating_spread", input_map: {daily_steam_revenue: "daily_steam_revenue", daily_electricity_cost: "daily_electricity_cost"}, output_map: {daily_operating_spread: "daily_operating_spread"}},
+          {step_id: "step_21_annual_operating_spread", formula_id: "operation.annual_operating_spread", input_map: {daily_operating_spread: "daily_operating_spread", annual_operating_days: "annual_operating_days"}, output_map: {annual_operating_spread_wan: "annual_operating_spread_wan"}}
+        ]
+      },
+      formulas: [
+        {id: "thermal.steam_enthalpy", name: "蒸汽焓值查表计算", type: "table", default_target: "steam_enthalpy", solve_targets: [], expression: "IAPWS-IF97 物性查表 (压力, 温度)", description: "根据蒸汽压力与温度查表计算比焓", variables: [{name: "steam_pressure", unit: "MPa", description: "蒸汽压力"}, {name: "steam_temperature", unit: "℃", description: "蒸汽温度"}, {name: "steam_enthalpy", unit: "kJ/kg", description: "蒸汽比焓"}], inputs: [{name: "steam_pressure", unit: "MPa", description: "蒸汽压力"}, {name: "steam_temperature", unit: "℃", description: "蒸汽温度"}], outputs: [{name: "steam_enthalpy", unit: "kJ/kg", description: "蒸汽比焓"}]},
+        {id: "thermal.water_enthalpy", name: "给水焓值查表计算", type: "table", default_target: "feedwater_enthalpy", solve_targets: [], expression: "IAPWS-IF97 物性查表 (给水压力, 温度)", description: "根据给水压力与温度查表计算比焓", variables: [{name: "feedwater_pressure", unit: "MPa", description: "给水压力"}, {name: "feedwater_temperature", unit: "℃", description: "给水温度"}, {name: "feedwater_enthalpy", unit: "kJ/kg", description: "给水比焓"}], inputs: [{name: "feedwater_pressure", unit: "MPa", description: "给水压力"}, {name: "feedwater_temperature", unit: "℃", description: "给水温度"}], outputs: [{name: "feedwater_enthalpy", unit: "kJ/kg", description: "给水比焓"}]},
+        {id: "thermal.enthalpy_diff", name: "蒸汽进出口焓差计算", type: "algebraic", default_target: "enthalpy_diff", solve_targets: ["enthalpy_diff"], display_expressions: {enthalpy_diff: "enthalpy_diff = steam_enthalpy - feedwater_enthalpy"}, expression: "enthalpy_diff = steam_enthalpy - feedwater_enthalpy", description: "计算水相变为目标蒸汽所需吸收的比焓增量", variables: [{name: "steam_enthalpy", unit: "kJ/kg", description: "蒸汽比焓"}, {name: "feedwater_enthalpy", unit: "kJ/kg", description: "给水比焓"}, {name: "enthalpy_diff", unit: "kJ/kg", description: "进出口有效焓差"}], inputs: [{name: "steam_enthalpy", unit: "kJ/kg", description: "蒸汽比焓"}, {name: "feedwater_enthalpy", unit: "kJ/kg", description: "给水比焓"}], outputs: [{name: "enthalpy_diff", unit: "kJ/kg", description: "进出口有效焓差"}]},
+        {id: "thermal.theoretical_power", name: "理论产汽功率计算", type: "algebraic", default_target: "theoretical_power", solve_targets: ["theoretical_power"], display_expressions: {theoretical_power: "theoretical_power = steam_mass_flow * enthalpy_diff / 3600"}, expression: "theoretical_power = steam_mass_flow * enthalpy_diff / 3600", description: "根据额定蒸汽流量与焓差计算理论净吸热功率", variables: [{name: "steam_mass_flow", unit: "t/h", description: "额定蒸汽流量"}, {name: "enthalpy_diff", unit: "kJ/kg", description: "有效焓差"}, {name: "theoretical_power", unit: "MW", description: "理论产汽功率"}], inputs: [{name: "steam_mass_flow", unit: "t/h", description: "额定蒸汽流量"}, {name: "enthalpy_diff", unit: "kJ/kg", description: "有效焓差"}], outputs: [{name: "theoretical_power", unit: "MW", description: "理论产汽功率"}]},
+        {id: "thermal.sgs_power", name: "SGS换热器功率计算", type: "algebraic", default_target: "sgs_power", solve_targets: ["sgs_power"], display_expressions: {sgs_power: "sgs_power = theoretical_power / heat_exchanger_efficiency"}, expression: "sgs_power = theoretical_power / heat_exchanger_efficiency", description: "计入换热损失后折算SGS换热器侧热功率", variables: [{name: "theoretical_power", unit: "MW", description: "理论产汽功率"}, {name: "heat_exchanger_efficiency", unit: "/", description: "换热综合效率"}, {name: "sgs_power", unit: "MW", description: "SGS换热功率"}], inputs: [{name: "theoretical_power", unit: "MW", description: "理论产汽功率"}, {name: "heat_exchanger_efficiency", unit: "/", description: "换热综合效率"}], outputs: [{name: "sgs_power", unit: "MW", description: "SGS换热功率"}]},
+        {id: "thermal.steam_heat_supply", name: "供汽期总吸热量计算", type: "algebraic", default_target: "steam_heat_supply", solve_targets: ["steam_heat_supply"], display_expressions: {steam_heat_supply: "steam_heat_supply = sgs_power * steam_supply_hours"}, expression: "steam_heat_supply = sgs_power * steam_supply_hours", description: "结合供汽时长将换热功率转换为周期累计总热能", variables: [{name: "sgs_power", unit: "MW", description: "SGS换热功率"}, {name: "steam_supply_hours", unit: "h", description: "每日供汽时长"}, {name: "steam_heat_supply", unit: "MWh", description: "供汽期总吸热量"}], inputs: [{name: "sgs_power", unit: "MW", description: "SGS换热功率"}, {name: "steam_supply_hours", unit: "h", description: "每日供汽时长"}], outputs: [{name: "steam_heat_supply", unit: "MWh", description: "供汽期总吸热量"}]},
+        {id: "thermal.thermal_storage_capacity", name: "储热罐额定储热量计算", type: "algebraic", default_target: "thermal_storage_capacity", solve_targets: ["thermal_storage_capacity"], display_expressions: {thermal_storage_capacity: "thermal_storage_capacity = steam_heat_supply / thermal_storage_efficiency"}, expression: "thermal_storage_capacity = steam_heat_supply / thermal_storage_efficiency", description: "计入储罐保温散热损失计算额定储热容量", variables: [{name: "steam_heat_supply", unit: "MWh", description: "供汽期总吸热量"}, {name: "thermal_storage_efficiency", unit: "/", description: "储热综合效率"}, {name: "thermal_storage_capacity", unit: "MWh", description: "储热罐额定储热容量"}], inputs: [{name: "steam_heat_supply", unit: "MWh", description: "供汽期总吸热量"}, {name: "thermal_storage_efficiency", unit: "/", description: "储热综合效率"}], outputs: [{name: "thermal_storage_capacity", unit: "MWh", description: "储热罐额定储热容量"}]},
+        {id: "thermal.electric_heater_power", name: "电加热器额定功率计算", type: "algebraic", default_target: "electric_heater_power", solve_targets: ["electric_heater_power"], display_expressions: {electric_heater_power: "electric_heater_power = thermal_storage_capacity / valley_electricity_hours / electric_heater_efficiency"}, expression: "electric_heater_power = thermal_storage_capacity / valley_electricity_hours / electric_heater_efficiency", description: "基于能量守恒与谷电蓄热时长折算电加热器电功率", variables: [{name: "thermal_storage_capacity", unit: "MWh", description: "储热罐额定储热容量"}, {name: "valley_electricity_hours", unit: "h", description: "每日谷电时长"}, {name: "electric_heater_efficiency", unit: "/", description: "电加热器效率"}, {name: "electric_heater_power", unit: "MW", description: "电加热器额定电功率"}], inputs: [{name: "thermal_storage_capacity", unit: "MWh", description: "储热罐额定储热容量"}, {name: "valley_electricity_hours", unit: "h", description: "每日谷电时长"}, {name: "electric_heater_efficiency", unit: "/", description: "电加热器效率"}], outputs: [{name: "electric_heater_power", unit: "MW", description: "电加热器额定电功率"}]},
+        {id: "thermal.molten_salt_mass", name: "熔盐需求总质量计算", type: "algebraic", default_target: "salt_mass", solve_targets: ["salt_mass"], display_expressions: {salt_mass: "salt_mass = thermal_storage_capacity * 3600 / (salt_specific_heat * (salt_hot_temp - salt_cold_temp)) * salt_safety_margin"}, expression: "salt_mass = thermal_storage_capacity * 3600 / (salt_specific_heat * (salt_hot_temperature - salt_cold_temperature)) * salt_safety_margin", description: "根据温区、比热容及安全冗余系数确定理论熔盐净重", variables: [{name: "thermal_storage_capacity", unit: "MWh", description: "储热容量"}, {name: "salt_specific_heat", unit: "kJ/(kg·℃)", description: "熔盐平均比热容"}, {name: "salt_hot_temperature", unit: "℃", description: "高温熔盐温度"}, {name: "salt_cold_temperature", unit: "℃", description: "低温熔盐温度"}, {name: "salt_safety_margin", unit: "/", description: "安全冗余系数"}, {name: "salt_mass", unit: "t", description: "熔盐装填总质量"}], inputs: [{name: "thermal_storage_capacity", unit: "MWh", description: "储热容量"}, {name: "salt_specific_heat", unit: "kJ/(kg·℃)", description: "比热容"}, {name: "salt_hot_temperature", unit: "℃", description: "高温熔盐温度"}, {name: "salt_cold_temperature", unit: "℃", description: "低温熔盐温度"}, {name: "salt_safety_margin", unit: "/", description: "安全冗余"}], outputs: [{name: "salt_mass", unit: "t", description: "熔盐装填总质量"}]},
+        {id: "sizing.sgs_sizing", name: "SGS设备规格整定选型", type: "discrete", default_target: "sgs_sizing_mw", solve_targets: [], expression: "模数 5MW 向上圆整", description: "SGS换热功率向上整定至 5MW 标准规格", variables: [{name: "sgs_power", unit: "MW", description: "SGS理论功率"}, {name: "sgs_sizing_mw", unit: "MW", description: "SGS标准选型规格"}], inputs: [{name: "sgs_power", unit: "MW", description: "SGS理论功率"}], outputs: [{name: "sgs_sizing_mw", unit: "MW", description: "SGS标准选型规格"}]},
+        {id: "sizing.heater_sizing", name: "电加热器标准选型", type: "discrete", default_target: "heater_sizing_mw", solve_targets: [], expression: "模数 5MW 向上圆整", description: "电加热器电功率向上整定至 5MW 标准模块规格", variables: [{name: "electric_heater_power", unit: "MW", description: "电加热器理论功率"}, {name: "heater_sizing_mw", unit: "MW", description: "电加热器标准选型规格"}], inputs: [{name: "electric_heater_power", unit: "MW", description: "电加热器理论功率"}], outputs: [{name: "heater_sizing_mw", unit: "MW", description: "电加热器标准选型规格"}]},
+        {id: "sizing.transformer_sizing", name: "主变压器标准容量选型", type: "table", default_target: "transformer_capacity_mva", solve_targets: [], expression: "国标变压器容量序列匹配", description: "按电加热器选型功率查国标序列匹配主变容量", variables: [{name: "heater_sizing_mw", unit: "MW", description: "电加热器规格"}, {name: "transformer_capacity_mva", unit: "MVA", description: "主变压器标准额定容量"}], inputs: [{name: "heater_sizing_mw", unit: "MW", description: "电加热器规格"}], outputs: [{name: "transformer_capacity_mva", unit: "MVA", description: "主变压器标准额定容量"}]},
+        {id: "sizing.salt_mass_roundup", name: "熔盐订购量工程整定", type: "discrete", default_target: "salt_mass_tons", solve_targets: [], expression: "整 10 吨向上圆整", description: "理论熔盐净重向上圆整至整 10 吨采购订货量", variables: [{name: "salt_mass", unit: "t", description: "理论熔盐装填量"}, {name: "salt_mass_tons", unit: "t", description: "工程整定熔盐订购量"}], inputs: [{name: "salt_mass", unit: "t", description: "理论熔盐装填量"}], outputs: [{name: "salt_mass_tons", unit: "t", description: "工程整定熔盐订购量"}]},
+        {id: "operation.daily_electricity", name: "每日消纳谷电量计算", type: "algebraic", default_target: "daily_power_mwh", solve_targets: ["daily_power_mwh"], display_expressions: {daily_power_mwh: "daily_power_mwh = electric_heater_power * valley_electricity_hours"}, expression: "daily_power_mwh = electric_heater_power * valley_electricity_hours", description: "计算每日消纳低谷电用电量", variables: [{name: "electric_heater_power", unit: "MW", description: "电加热器运行功率"}, {name: "valley_electricity_hours", unit: "h", description: "每日谷电时长"}, {name: "daily_power_mwh", unit: "MWh", description: "每日消纳谷电电量"}], inputs: [{name: "electric_heater_power", unit: "MW", description: "电加热器运行功率"}, {name: "valley_electricity_hours", unit: "h", description: "每日谷电时长"}], outputs: [{name: "daily_power_mwh", unit: "MWh", description: "每日消纳谷电电量"}]},
+        {id: "operation.annual_electricity", name: "年累计消纳电量计算", type: "algebraic", default_target: "annual_power_wan_kwh", solve_targets: ["annual_power_wan_kwh"], display_expressions: {annual_power_wan_kwh: "annual_power_wan_kwh = daily_power_mwh * annual_operating_days / 10"}, expression: "annual_power_wan_kwh = daily_power_mwh * annual_operating_days / 10", description: "测算年有效运行累计用电量", variables: [{name: "daily_power_mwh", unit: "MWh", description: "每日消纳谷电电量"}, {name: "annual_operating_days", unit: "d", description: "年运行天数"}, {name: "annual_power_wan_kwh", unit: "万kWh", description: "年累计用电量"}], inputs: [{name: "daily_power_mwh", unit: "MWh", description: "每日消纳谷电电量"}, {name: "annual_operating_days", unit: "d", description: "年运行天数"}], outputs: [{name: "annual_power_wan_kwh", unit: "万kWh", description: "年累计用电量"}]},
+        {id: "operation.daily_steam_production", name: "每日外供蒸汽量计算", type: "algebraic", default_target: "daily_steam_tons", solve_targets: ["daily_steam_tons"], display_expressions: {daily_steam_tons: "daily_steam_tons = steam_mass_flow * steam_supply_hours"}, expression: "daily_steam_tons = steam_mass_flow * steam_supply_hours", description: "计算每日累计外供蒸汽吨数", variables: [{name: "steam_mass_flow", unit: "t/h", description: "蒸汽瞬时流量"}, {name: "steam_supply_hours", unit: "h", description: "每日供汽时长"}, {name: "daily_steam_tons", unit: "t", description: "每日供汽总量"}], inputs: [{name: "steam_mass_flow", unit: "t/h", description: "蒸汽瞬时流量"}, {name: "steam_supply_hours", unit: "h", description: "每日供汽时长"}], outputs: [{name: "daily_steam_tons", unit: "t", description: "每日供汽总量"}]},
+        {id: "operation.annual_steam_production", name: "年累计供汽量计算", type: "algebraic", default_target: "annual_steam_wan_tons", solve_targets: ["annual_steam_wan_tons"], display_expressions: {annual_steam_wan_tons: "annual_steam_wan_tons = daily_steam_tons * annual_operating_days / 10000"}, expression: "annual_steam_wan_tons = daily_steam_tons * annual_operating_days / 10000", description: "测算年累计外供蒸汽总量", variables: [{name: "daily_steam_tons", unit: "t", description: "每日供汽总量"}, {name: "annual_operating_days", unit: "d", description: "年运行天数"}, {name: "annual_steam_wan_tons", unit: "万t", description: "年累计供汽总量"}], inputs: [{name: "daily_steam_tons", unit: "t", description: "每日供汽总量"}, {name: "annual_operating_days", unit: "d", description: "年运行天数"}], outputs: [{name: "annual_steam_wan_tons", unit: "万t", description: "年累计供汽总量"}]},
+        {id: "operation.daily_electricity_cost", name: "每日购电费用支出计算", type: "algebraic", default_target: "daily_electricity_cost", solve_targets: ["daily_electricity_cost"], display_expressions: {daily_electricity_cost: "daily_electricity_cost = daily_power_mwh * 1000 * valley_electricity_price"}, expression: "daily_electricity_cost = daily_power_mwh * 1000 * valley_electricity_price", description: "计算每日谷电购电成本", variables: [{name: "daily_power_mwh", unit: "MWh", description: "每日消纳谷电电量"}, {name: "valley_electricity_price", unit: "元/kWh", description: "低谷电价"}, {name: "daily_electricity_cost", unit: "元", description: "每日低谷电费支出"}], inputs: [{name: "daily_power_mwh", unit: "MWh", description: "每日消纳谷电电量"}, {name: "valley_electricity_price", unit: "元/kWh", description: "低谷电价"}], outputs: [{name: "daily_electricity_cost", unit: "元", description: "每日低谷电费支出"}]},
+        {id: "operation.daily_steam_revenue", name: "每日售汽营业收入计算", type: "algebraic", default_target: "daily_steam_revenue", solve_targets: ["daily_steam_revenue"], display_expressions: {daily_steam_revenue: "daily_steam_revenue = daily_steam_tons * steam_market_price"}, expression: "daily_steam_revenue = daily_steam_tons * steam_market_price", description: "计算每日外供蒸汽营业收入", variables: [{name: "daily_steam_tons", unit: "t", description: "每日供汽总量"}, {name: "steam_market_price", unit: "元/t", description: "蒸汽单价"}, {name: "daily_steam_revenue", unit: "元", description: "每日售汽营业收入"}], inputs: [{name: "daily_steam_tons", unit: "t", description: "每日供汽总量"}, {name: "steam_market_price", unit: "元/t", description: "蒸汽单价"}], outputs: [{name: "daily_steam_revenue", unit: "元", description: "每日售汽营业收入"}]},
+        {id: "operation.daily_operating_spread", name: "每日经营毛收益差额计算", type: "algebraic", default_target: "daily_operating_spread", solve_targets: ["daily_operating_spread"], display_expressions: {daily_operating_spread: "daily_operating_spread = daily_steam_revenue - daily_electricity_cost"}, expression: "daily_operating_spread = daily_steam_revenue - daily_electricity_cost", description: "计算日度售汽收入与低谷购电成本的毛利差额", variables: [{name: "daily_steam_revenue", unit: "元", description: "每日售汽营业收入"}, {name: "daily_electricity_cost", unit: "元", description: "每日低谷电费支出"}, {name: "daily_operating_spread", unit: "元", description: "每日经营毛收益差额"}], inputs: [{name: "daily_steam_revenue", unit: "元", description: "每日售汽营业收入"}, {name: "daily_electricity_cost", unit: "元", description: "每日低谷电费支出"}], outputs: [{name: "daily_operating_spread", unit: "元", description: "每日经营毛收益差额"}]},
+        {id: "operation.annual_operating_spread", name: "年化经营毛收益差额测算", type: "algebraic", default_target: "annual_operating_spread_wan", solve_targets: ["annual_operating_spread_wan"], display_expressions: {annual_operating_spread_wan: "annual_operating_spread_wan = daily_operating_spread * annual_operating_days / 10000"}, expression: "annual_operating_spread_wan = daily_operating_spread * annual_operating_days / 10000", description: "折算年化经营毛利差额", variables: [{name: "daily_operating_spread", unit: "元", description: "每日经营毛收益差额"}, {name: "annual_operating_days", unit: "d", description: "年运行天数"}, {name: "annual_operating_spread_wan", unit: "万元", description: "年化经营毛收益差额"}], inputs: [{name: "daily_operating_spread", unit: "元", description: "每日经营毛收益差额"}, {name: "annual_operating_days", unit: "d", description: "年运行天数"}], outputs: [{name: "annual_operating_spread_wan", unit: "万元", description: "年化经营毛收益差额"}]}
+      ],
+      calculation_result: {
+        initial_inputs: {
+          steam_pressure: 1.5, steam_temperature: 200.0, feedwater_pressure: 0.1, feedwater_temperature: 20.0,
+          steam_mass_flow: 100.0, heat_exchanger_efficiency: 0.99, steam_supply_hours: 8.0, thermal_storage_efficiency: 0.99,
+          valley_electricity_hours: 8.0, electric_heater_efficiency: 0.985, salt_hot_temperature: 390.0, salt_cold_temperature: 190.0,
+          salt_specific_heat: 1.42, salt_safety_margin: 1.10, annual_operating_days: 330.0, valley_electricity_price: 0.30, steam_market_price: 180.0
+        },
+        final_outputs: {
+          steam_enthalpy: 2796.0156, feedwater_enthalpy: 84.0118, enthalpy_diff: 2712.0038, theoretical_power: 75.3334,
+          sgs_power: 76.0944, steam_heat_supply: 608.7551, thermal_storage_capacity: 614.9041, electric_heater_power: 78.0335,
+          salt_mass: 8574.0150, sgs_sizing_mw: 80.0, heater_sizing_mw: 80.0, transformer_capacity_mva: 90.0,
+          salt_mass_tons: 8580.0, daily_power_mwh: 624.2681, annual_power_wan_kwh: 20600.8482, daily_steam_tons: 800.0,
+          annual_steam_wan_tons: 26.4, daily_electricity_cost: 187280.4378, daily_steam_revenue: 144000.0,
+          daily_operating_spread: -43280.4378, annual_operating_spread_wan: -1428.2544
+        }
+      }
+    };
+
+    let sessionView = clone(BASELINE_DATA);
+    let selectedStepId = null, drawerPipeline = null, activeStage = 1;
+    let insertionMode = "after", insertionAnchor = null;
+    let panX = 0, panY = 0, drag = null, wireFrame = null;
+    let pendingParameters = {};
+    let highlightedNode = null;
+
+    const formulaById = id => sessionView.formulas.find(f => f.id === id);
+
+    function effectivePins(formula, step) {
+      const target = step.solve_target || formula.default_target;
+      if (!target || !formula.solve_targets?.includes(target)) return {inputs: formula.inputs, outputs: formula.outputs};
+      return {inputs: formula.variables.filter(pin => pin.name !== target), outputs: formula.variables.filter(pin => pin.name === target)};
+    }
+
+    const formatValue = value => typeof value === "number" && Number.isFinite(value)
+      ? value.toLocaleString("zh-CN", {maximumFractionDigits: 4, useGrouping: false}) : "—";
+
+    function pinRow(pin, variable, direction, value) {
+      return `<div class="flex justify-between items-center gap-2 py-0.5 relative group" data-${direction}="${escapeHtml(variable)}">
+        <span class="text-slate-600 break-words text-[11px]">${escapeHtml(pin?.description || variable)}</span>
+        <span class="font-mono text-right shrink-0 text-xs ${direction === 'out' ? 'text-softPin-outText font-black' : 'text-slate-800'}">
+          <b data-value="${escapeHtml(variable)}">${formatValue(value)}</b> <small class="text-slate-400 font-normal">${escapeHtml(pin?.unit)}</small>
+        </span>
+      </div>`;
+    }
+
+    // 1. 微型常量胶囊 (130px 极简尺寸，纯中文+输入+单位，彻底删除英文变量名)
+    function renderConstantCard(pin, value, canEdit, extra = "") {
+      return `<section data-node="input:${escapeHtml(pin.name)}" class="flow-node-box node-constant absolute p-1.5 ${extra}">
+        <div class="flex items-center justify-between pb-0.5 mb-1 border-b border-amber-200/60">
+          <span class="text-[11px] font-black text-softPin-constText truncate" title="${escapeHtml(pin.description)}">${escapeHtml(pin.description)}</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-softPin-constDot shrink-0"></span>
+        </div>
+        <div data-out="${escapeHtml(pin.name)}" class="flex items-center gap-1 font-mono">
+          <input data-parameter="${escapeHtml(pin.name)}" aria-label="${escapeHtml(pin.description)}" type="number" step="any" value="${escapeHtml(value)}" ${canEdit ? "" : "disabled"} class="w-full min-w-0 px-1 py-0.5 text-right border border-softPin-constBorder rounded text-xs bg-white text-softPin-constText font-black disabled:bg-amber-50/50 focus:outline-none focus:ring-1 focus:ring-amber-400">
+          <span class="shrink-0 text-[10px] text-amber-900 font-bold">${escapeHtml(pin.unit)}</span>
+        </div>
+      </section>`;
+    }
+
+    // 2. 微型输入胶囊 (130px 极简尺寸，纯中文+输入+单位，彻底删除英文变量名)
+    function renderInputCard(pin, value, canEdit, extra = "") {
+      return `<section data-node="input:${escapeHtml(pin.name)}" class="flow-node-box node-input absolute p-1.5 ${extra}">
+        <div class="flex items-center justify-between pb-0.5 mb-1 border-b border-green-200/60">
+          <span class="text-[11px] font-black text-softPin-inText truncate" title="${escapeHtml(pin.description)}">${escapeHtml(pin.description)}</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-softPin-inDot shrink-0"></span>
+        </div>
+        <div data-out="${escapeHtml(pin.name)}" class="flex items-center gap-1 font-mono">
+          <input data-parameter="${escapeHtml(pin.name)}" aria-label="${escapeHtml(pin.description)}" type="number" step="any" value="${escapeHtml(value)}" ${canEdit ? "" : "disabled"} class="w-full min-w-0 px-1 py-0.5 text-right border border-softPin-inBorder rounded text-xs bg-white text-softPin-inText font-black disabled:bg-green-50/50 focus:outline-none focus:ring-1 focus:ring-green-400">
+          <span class="shrink-0 text-[10px] text-emerald-900 font-bold">${escapeHtml(pin.unit)}</span>
+        </div>
+      </section>`;
+    }
+
+    // 3. 核心算子标准卡片 (保持 270px 经典宽度，公式+输入+输出分区结构化呈现)
+    function renderStepCard(step, formula, pins, expression, result, isSelected) {
+      const rows = pins.inputs.map(pin => pinRow(pin, step.input_map[pin.name], "in", result[step.input_map[pin.name]])).join("");
+      const outputs = pins.outputs.map(pin => pinRow(pin, step.output_map[pin.name], "out", result[step.output_map[pin.name]])).join("");
+      return `<section data-node="step:${escapeHtml(step.step_id)}" class="flow-node-box node-step absolute rounded-lg overflow-visible ${isSelected ? "selected" : ""}">
+        <div class="px-3 py-2 rounded-t-lg text-xs font-black border-b bg-softPin-opBg text-softPin-opText border-softPin-opBorder flex items-center justify-between">
+          <span class="truncate">${escapeHtml(formula.name)}</span>
+          <span class="w-2 h-2 rounded-full bg-softPin-opDot shrink-0"></span>
+        </div>
+        <div class="p-3 text-[11px] space-y-2 bg-white rounded-b-lg">
+          ${expression ? `<div data-formula class="font-mono text-[10.5px] text-blue-900 bg-blue-50/70 border border-blue-100 rounded px-2 py-1 break-words leading-relaxed">${escapeHtml(expression)}</div>` : ''}
+          ${rows ? `<div class="space-y-0.5">${rows}</div>` : ''}
+          ${outputs ? `<div class="border-t border-dashed border-purple-200 pt-1.5 space-y-0.5">${outputs}</div>` : ''}
+        </div>
+      </section>`;
+    }
+
+    // 4. 纯净通用：直接自左向右水平顺序排列引擎 (非蛇形、通用支持任意自定义 Pipeline)
+    function computeHorizontalSequenceLayout(pipeline) {
+      const layout = {};
+      const placedInputs = new Set();
+      const stepSpacing = 320;
+      const startX = 40;
+      const stepY = 175; // 算子统一主水平轴线
+
+      // 遍历算子序列，直接沿单一水平轴线自左向右铺开
+      pipeline.steps.forEach((step, index) => {
+        const stepX = startX + index * stepSpacing;
+        layout[`step:${step.step_id}`] = { left: stepX, top: stepY };
+
+        // 收集该算子所直接绑定的外部工况输入和工程常量，就近布置于算子正上方
+        const inputsForStep = Object.values(step.input_map).filter(varName => 
+          pipeline.required_inputs.some(p => p.name === varName) && !placedInputs.has(varName)
+        );
+
+        inputsForStep.forEach((varName, inIdx) => {
+          placedInputs.add(varName);
+          // 两两并排放在 270px 算子上方 (左: 0, 右: 136px; 上排: 40px, 下排: 105px)
+          const colOffset = (inIdx % 2) * 136;
+          const rowOffset = Math.floor(inIdx / 2) * 62;
+          layout[`input:${varName}`] = {
+            left: stepX + colOffset,
+            top: 40 + rowOffset
+          };
+        });
+      });
+
+      // 未被算子直接消耗的备用/全局常量或输入，紧凑排列在最前端上方
+      let unplacedIdx = 0;
+      pipeline.required_inputs.forEach(pin => {
+        if (!placedInputs.has(pin.name)) {
+          const col = Math.floor(unplacedIdx / 2);
+          const row = unplacedIdx % 2;
+          layout[`input:${pin.name}`] = {
+            left: startX + col * 136,
+            top: 40 + row * 62
+          };
+          unplacedIdx++;
+        }
+      });
+
+      return layout;
+    }
+
+    function renderGraph() {
+      const pipeline = sessionView.pipeline, calculation = sessionView.calculation_result;
+      const result = Object.keys(pendingParameters).length ? {} : {...calculation?.initial_inputs, ...calculation?.final_outputs};
+      const canEdit = activeStage === 2;
+      const html = [];
+
+      // 渲染输入与常量微型卡片
+      for (const pin of pipeline.required_inputs) {
+        const val = pendingParameters[pin.name] ?? pin.default_value ?? "";
+        if (pin.kind === "constant") {
+          html.push(renderConstantCard(pin, val, canEdit));
+        } else {
+          html.push(renderInputCard(pin, val, canEdit));
+        }
+      }
+
+      // 渲染计算算子卡片
+      for (const step of pipeline.steps) {
+        const formula = formulaById(step.formula_id);
+        const pins = effectivePins(formula, step);
+        const expression = formula.display_expressions?.[step.solve_target || formula.default_target] || formula.expression || "";
+        html.push(renderStepCard(step, formula, pins, expression, result, selectedStepId === step.step_id));
+      }
+
+      $("node-layer").innerHTML = html.join("");
+
+      // 动态计算水平顺序默认排版
+      const defaultLayout = computeHorizontalSequenceLayout(pipeline);
+      const nodes = [...$("node-layer").children];
+      let maxRight = 1200, maxBottom = 600;
+
+      nodes.forEach(node => {
+        const key = node.dataset.node;
+        const savedPos = pipeline.layout[key];
+        const defaultPos = defaultLayout[key] || { left: 40, top: 180 };
+
+        const left = savedPos ? savedPos.left : defaultPos.left;
+        const top = savedPos ? savedPos.top : defaultPos.top;
+
+        node.style.left = left + "px";
+        node.style.top = top + "px";
+
+        maxRight = Math.max(maxRight, left + 340);
+        maxBottom = Math.max(maxBottom, top + 260);
+      });
+
+      $("dag-workspace").style.width = maxRight + "px";
+      $("dag-workspace").style.height = maxBottom + "px";
+      $("dag-workspace").style.transform = `translate(${panX}px, ${panY}px)`;
+
+      $("tab-stage-1").classList.toggle("bg-white", activeStage === 1);
+      $("tab-stage-1").classList.toggle("shadow-xs", activeStage === 1);
+      $("tab-stage-1").classList.toggle("text-paper-muted", activeStage !== 1);
+
+      $("tab-stage-2").classList.toggle("bg-white", activeStage === 2);
+      $("tab-stage-2").classList.toggle("shadow-xs", activeStage === 2);
+      $("tab-stage-2").classList.toggle("text-paper-muted", activeStage !== 2);
+
+      $("stage-desc-hint").textContent = activeStage === 1 ? "流程拓扑审核" : "参数核对与计算结果";
+      $("btn-main-action").textContent = activeStage === 1 ? "确认场景拓扑" : "确认参数并计算";
+
+      positionToolbar();
+      scheduleWires();
+    }
+
+    // ======================== 防混叠、带箭头的弹性贝塞尔走线引擎 ========================
+    function scheduleWires() {
+      if (wireFrame !== null) cancelAnimationFrame(wireFrame);
+      wireFrame = requestAnimationFrame(() => { wireFrame = null; drawWires(); });
+    }
+
+    function drawWires() {
+      const workspace = $("dag-workspace").getBoundingClientRect();
+      const nodes = [...$("node-layer").children];
+
+      const producers = new Map();
+      for (const node of nodes) {
+        for (const port of node.querySelectorAll("[data-out]")) {
+          producers.set(port.dataset.out, {node, port});
+        }
+      }
+
+      const paths = [];
+
+      for (const node of nodes) {
+        for (const port of node.querySelectorAll("[data-in]")) {
+          const varName = port.dataset.in;
+          const source = producers.get(varName);
+          if (!source) continue;
+
+          const sourceKey = source.node.dataset.node;
+          const targetKey = node.dataset.node;
+
+          const pa = source.port.getBoundingClientRect();
+          const pb = port.getBoundingClientRect();
+          const na = source.node.getBoundingClientRect();
+          const nb = node.getBoundingClientRect();
+
+          // 连线起点：源卡片右侧中点或引脚右侧中点
+          const from = {
+            x: na.right - workspace.left,
+            y: (pa.top + pa.bottom) / 2 - workspace.top
+          };
+          // 连线终点：目标卡片左侧或引脚左侧中点
+          const to = {
+            x: nb.left - workspace.left,
+            y: (pb.top + pb.bottom) / 2 - workspace.top
+          };
+
+          // 判断连线类型与颜色 (严格对齐 GLOSSARY 四色语义)
+          let wireType = "wire-step";
+          let markerId = "arrow-step";
+          if (sourceKey.startsWith("input:")) {
+            const isConst = source.node.classList.contains("node-constant");
+            wireType = isConst ? "wire-constant" : "wire-input";
+            markerId = isConst ? "arrow-const" : "arrow-input";
+          }
+
+          // 悬停聚焦效果 (高亮当前卡片关联的所有进出线，软化弱化其余无关连线)
+          let activeClass = "";
+          if (highlightedNode) {
+            const isConnected = (sourceKey === highlightedNode.key || targetKey === highlightedNode.key);
+            if (isConnected) {
+              activeClass = "wire-highlight";
+              markerId = "arrow-highlight";
+            } else {
+              activeClass = "wire-dimmed";
+            }
+          }
+
+          // 自适应平滑贝塞尔曲线
+          let d = "";
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+
+          if (dx > 20) {
+            const curvature = Math.max(30, Math.min(160, dx * 0.45));
+            d = `M ${from.x} ${from.y} C ${from.x + curvature} ${from.y}, ${to.x - curvature} ${to.y}, ${to.x} ${to.y}`;
+          } else {
+            // 反向或紧凑回绕曲线
+            const offsetX = 40;
+            const midY = (from.y + to.y) / 2;
+            d = `M ${from.x} ${from.y} C ${from.x + offsetX} ${from.y}, ${from.x + offsetX} ${midY}, ${(from.x + to.x) / 2} ${midY} S ${to.x - offsetX} ${to.y}, ${to.x} ${to.y}`;
+          }
+
+          paths.push(`<path class="wire-base ${wireType} ${activeClass}" data-from="${escapeHtml(sourceKey)}" data-to="${escapeHtml(targetKey)}" data-wire="${escapeHtml(varName)}" d="${d}" marker-end="url(#${markerId})"/>`);
+        }
+      }
+
+      // 仅保留 markers defs，动态替换 path
+      const defs = $("svg-wiring-layer").querySelector("defs").outerHTML;
+      $("svg-wiring-layer").innerHTML = defs + paths.join("");
+    }
+
+    // 节点工具条定位
+    function positionToolbar() {
+      const node = [...$("node-layer").children].find(item => item.dataset.node === `step:${selectedStepId}`);
+      $("node-floating-toolbar").classList.toggle("hidden", !node);
+      if (node) {
+        $("node-floating-toolbar").style.left = node.style.left;
+        $("node-floating-toolbar").style.top = (parseFloat(node.style.top) - 35) + "px";
+      }
+    }
+
+    function switchStage(stage) {
+      activeStage = stage;
+      renderGraph();
+    }
+
+    function handlePrimaryAction() {
+      if (activeStage === 1) {
+        activeStage = 2;
+        renderGraph();
+      } else {
+        alert("【参数核对与计算完成】所有工况数值已核实，计算结果已同步呈现！");
+      }
+    }
+
+    function resetLayoutPositions() {
+      sessionView.pipeline.layout = {};
+      panX = 0; panY = 0;
+      renderGraph();
+    }
+
+    function openDrawer(stepId) {
+      selectedStepId = stepId;
+      drawerPipeline = clone(sessionView.pipeline);
+      const step = sessionView.pipeline.steps.find(item => item.step_id === stepId);
+      const formula = formulaById(step.formula_id);
+
+      $("drawer-id").value = formula.id;
+      $("drawer-name").value = formula.name;
+      $("drawer-formula").value = formula.expression || "物性 / 查表函数";
+      $("drawer-formula").readOnly = formula.type !== "algebraic";
+      $("drawer-desc").value = formula.description;
+
+      $("drawer-target-label").classList.toggle("hidden", !formula.solve_targets?.length);
+      $("drawer-target").innerHTML = (formula.solve_targets || []).map(name => {
+        const pin = formula.variables.find(item => item.name === name);
+        return `<option value="${escapeHtml(name)}" ${name === (step.solve_target || formula.default_target) ? "selected" : ""}>${escapeHtml(pin?.description || name)} (${escapeHtml(pin?.unit || '/')})</option>`;
+      }).join("");
+
+      renderDrawerPins();
+      $("operator-drawer").classList.remove("translate-x-full");
+      positionToolbar();
+
+      for (const node of $("node-layer").children) {
+        node.classList.toggle("selected", node.dataset.node === `step:${stepId}`);
+      }
+    }
+
+    function renderDrawerPins() {
+      const variables = {};
+      for (const pin of drawerPipeline.required_inputs) variables[pin.name] = pin;
+      for (const step of drawerPipeline.steps) {
+        for (const pin of effectivePins(formulaById(step.formula_id), step).outputs) {
+          variables[step.output_map[pin.name]] = pin;
+        }
+      }
+      const step = drawerPipeline.steps.find(item => item.step_id === selectedStepId);
+      const pins = effectivePins(formulaById(step.formula_id), step);
+
+      $("drawer-pins").innerHTML = pins.inputs.map(pin => {
+        const currentVal = step.input_map[pin.name];
+        const options = Object.entries(variables).map(([k, p]) => `<option value="${escapeHtml(k)}" ${k === currentVal ? "selected" : ""}>${escapeHtml(p.description)} · ${escapeHtml(k)} (${escapeHtml(p.unit)})</option>`).join("");
+        return `<label class="block font-bold" data-pin="${escapeHtml(pin.name)}">
+          ${escapeHtml(pin.description)} (${escapeHtml(pin.unit)})
+          <select data-source="${escapeHtml(pin.name)}" class="mt-1 w-full border rounded p-2 text-xs bg-white">
+            <option value="">请选择来源</option>${options}
+          </select>
+        </label>`;
+      }).join("");
+    }
+
+    function changeSolveTarget() {
+      const step = sessionView.pipeline.steps.find(item => item.step_id === selectedStepId);
+      step.solve_target = $("drawer-target").value;
+      renderDrawerPins();
+    }
+
+    function closeDrawer() {
+      $("operator-drawer").classList.add("translate-x-full");
+      selectedStepId = null;
+      positionToolbar();
+      for (const node of $("node-layer").children) node.classList.remove("selected");
+    }
+
+    function saveDrawer() {
+      const step = sessionView.pipeline.steps.find(item => item.step_id === selectedStepId);
+      if (step) {
+        step.solve_target = $("drawer-target").value;
+        const selects = $("drawer-pins").querySelectorAll("select");
+        selects.forEach(sel => {
+          step.input_map[sel.dataset.source] = sel.value;
+        });
+      }
+      closeDrawer();
+      renderGraph();
+    }
+
+    function openAddOperatorModal(mode = "after") {
+      insertionMode = mode;
+      $("select-lib-op").innerHTML = sessionView.formulas.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} · ${escapeHtml(f.id)}</option>`).join("");
+      $("modal-add-op").classList.remove("hidden");
+    }
+    function closeAddOperatorModal() { $("modal-add-op").classList.add("hidden"); }
+    function changeOperatorSelection() {}
+    function triggerInsertBefore() { openAddOperatorModal("before"); }
+    function triggerInsertAfter() { openAddOperatorModal("after"); }
+    function triggerReplace() { openAddOperatorModal("replace"); }
+    function triggerDeleteCurrent() {
+      if (!selectedStepId) return;
+      sessionView.pipeline.steps = sessionView.pipeline.steps.filter(s => s.step_id !== selectedStepId);
+      delete sessionView.pipeline.layout[`step:${selectedStepId}`];
+      closeDrawer();
+      renderGraph();
+    }
+
+    function confirmNewOperator() {
+      const chosen = $("select-lib-op").value;
+      const formula = formulaById(chosen);
+      const newStep = {
+        step_id: `custom_${formula.id.replace(/\./g, '_')}_${Date.now().toString().slice(-4)}`,
+        formula_id: formula.id,
+        input_map: {},
+        output_map: {}
+      };
+      for (const pin of formula.inputs) newStep.input_map[pin.name] = pin.name;
+      for (const pin of formula.outputs) newStep.output_map[pin.name] = `${pin.name}_custom`;
+      sessionView.pipeline.steps.push(newStep);
+      closeAddOperatorModal();
+      renderGraph();
+    }
+
+    function openAddConstantModal() { $("modal-add-const").classList.remove("hidden"); }
+    function closeAddConstantModal() { $("modal-add-const").classList.add("hidden"); }
+    function confirmNewConstant() {
+      const id = $("new-const-id").value.trim() || `custom_const_${Date.now().toString().slice(-4)}`;
+      const name = $("new-const-name").value.trim() || "自定义工程常量";
+      const val = parseFloat($("new-const-val").value) || 1.0;
+      const unit = $("new-const-unit").value.trim() || "/";
+
+      sessionView.pipeline.required_inputs.push({
+        name: id,
+        description: name,
+        default_value: val,
+        unit: unit,
+        kind: "constant"
+      });
+      closeAddConstantModal();
+      renderGraph();
+    }
+
+    // 交互初始化 (自由拖拽、画布平移、引脚高亮聚焦)
+    function initInteractions() {
+      const canvas = $("canvas-container");
+
+      // 悬停高亮关联连线
+      canvas.addEventListener("mouseover", event => {
+        const node = event.target.closest("[data-node]");
+        if (node && (!highlightedNode || highlightedNode.node !== node)) {
+          highlightedNode = { node, key: node.dataset.node };
+          scheduleWires();
+        }
+      });
+      canvas.addEventListener("mouseout", event => {
+        const node = event.target.closest("[data-node]");
+        if (node && !event.relatedTarget?.closest(`[data-node="${node.dataset.node}"]`)) {
+          highlightedNode = null;
+          scheduleWires();
+        }
+      });
+
+      // 拖拽与平移
+      canvas.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || event.target.closest("input,button,select,textarea")) return;
+        const node = event.target.closest("[data-node]");
+        drag = {
+          node,
+          startX: event.clientX,
+          startY: event.clientY,
+          left: node ? parseFloat(node.style.left) : panX,
+          top: node ? parseFloat(node.style.top) : panY,
+          moved: false,
+          pointerId: event.pointerId
+        };
+        canvas.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      });
+
+      canvas.addEventListener("pointermove", event => {
+        if (!drag) return;
+        const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+        if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+        if (!drag.moved) return;
+
+        if (drag.node) {
+          drag.node.style.left = (drag.left + dx) + "px";
+          drag.node.style.top = (drag.top + dy) + "px";
+          positionToolbar();
+          scheduleWires();
+        } else {
+          panX = drag.left + dx;
+          panY = drag.top + dy;
+          $("dag-workspace").style.transform = `translate(${panX}px, ${panY}px)`;
+        }
+      });
+
+      canvas.addEventListener("pointerup", event => {
+        if (!drag) return;
+        const current = drag; drag = null;
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+
+        if (current.moved && current.node) {
+          const key = current.node.dataset.node;
+          sessionView.pipeline.layout[key] = {
+            left: parseFloat(current.node.style.left),
+            top: parseFloat(current.node.style.top)
+          };
+        } else if (!current.moved) {
+          const key = current.node?.dataset.node || "";
+          if (key.startsWith("step:")) openDrawer(key.slice(5));
+          else closeDrawer();
+        }
+      });
+
+      canvas.addEventListener("wheel", event => {
+        if (event.target.closest("input,select")) return;
+        event.preventDefault();
+        panX -= event.deltaX;
+        panY -= event.deltaY;
+        $("dag-workspace").style.transform = `translate(${panX}px, ${panY}px)`;
+      }, {passive: false});
+
+      window.addEventListener("resize", scheduleWires);
+    }
+
+    window.addEventListener("load", () => {
+      initInteractions();
+      renderGraph();
+    });
+  </script>
+</body>
+</html>
