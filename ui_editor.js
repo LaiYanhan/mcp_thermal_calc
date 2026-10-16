@@ -267,50 +267,67 @@ function renderStepCard(step, formula, pins, expression, result, isSelected) {
 function computePlan2Layout(pipeline) {
   const layout = {};
   const placedInputs = new Set();
-  const columnWidth = 320;
+  const columnWidth = 360;
   const startX = 40;
 
+  // 第一列 (X=40): 蒸汽与给水输入胶囊，直接位于其算子左侧
+  layout["input:steam_pressure"] = { left: startX, top: 90 };
+  layout["input:steam_temperature"] = { left: startX, top: 160 };
+  layout["input:feedwater_pressure"] = { left: startX, top: 370 };
+  layout["input:feedwater_temperature"] = { left: startX, top: 440 };
+  placedInputs.add("steam_pressure");
+  placedInputs.add("steam_temperature");
+  placedInputs.add("feedwater_pressure");
+  placedInputs.add("feedwater_temperature");
+
+  // 第二列 (X=220): 蒸汽与给水比焓查表算子 (纵向预留 105px 净空，彻底消除重叠遮挡)
+  layout["step:step_1_steam_enthalpy"] = { left: startX + 180, top: 90 };
+  layout["step:step_2_water_enthalpy"] = { left: startX + 180, top: 370 };
+
+  // 第三列起: 核心能量主轴 (Y=220)、设备选型分支 (Y=560)、能耗毛利分支 (Y=860)
   const mainXMap = {
-    "step_1_steam_enthalpy": 0, "step_2_water_enthalpy": 0, "step_3_enthalpy_diff": 1,
-    "step_4_theoretical_power": 2, "step_5_sgs_power": 3, "step_6_steam_heat_supply": 4,
-    "step_7_thermal_storage_capacity": 5, "step_8_electric_heater_power": 6, "step_9_molten_salt_mass": 7
+    "step_3_enthalpy_diff": 1,
+    "step_4_theoretical_power": 2,
+    "step_5_sgs_power": 3,
+    "step_6_steam_heat_supply": 4,
+    "step_7_thermal_storage_capacity": 5,
+    "step_8_electric_heater_power": 6,
+    "step_9_molten_salt_mass": 7
   };
 
   let customIdx = 0;
   pipeline.steps.forEach(step => {
     const sid = step.step_id;
-    if (sid === "step_1_steam_enthalpy") {
-      layout[`step:${sid}`] = { left: startX, top: 120 };
-    } else if (sid === "step_2_water_enthalpy") {
-      layout[`step:${sid}`] = { left: startX, top: 290 };
-    } else if (mainXMap[sid] !== undefined) {
-      layout[`step:${sid}`] = { left: startX + mainXMap[sid] * columnWidth, top: 200 };
+    if (layout[`step:${sid}`]) return;
+
+    if (mainXMap[sid] !== undefined) {
+      layout[`step:${sid}`] = { left: startX + 180 + mainXMap[sid] * columnWidth, top: 220 };
     } else if (sid === "step_10_sgs_sizing") {
-      layout[`step:${sid}`] = { left: startX + 3 * columnWidth, top: 440 };
+      layout[`step:${sid}`] = { left: startX + 180 + 3 * columnWidth, top: 560 };
     } else if (sid === "step_11_heater_sizing") {
-      layout[`step:${sid}`] = { left: startX + 6 * columnWidth, top: 440 };
+      layout[`step:${sid}`] = { left: startX + 180 + 6 * columnWidth, top: 560 };
     } else if (sid === "step_12_transformer_sizing") {
-      layout[`step:${sid}`] = { left: startX + 7 * columnWidth, top: 440 };
+      layout[`step:${sid}`] = { left: startX + 180 + 7 * columnWidth, top: 560 };
     } else if (sid === "step_13_salt_mass_roundup") {
-      layout[`step:${sid}`] = { left: startX + 8 * columnWidth, top: 440 };
+      layout[`step:${sid}`] = { left: startX + 180 + 8 * columnWidth, top: 560 };
     } else if (sid === "step_16_daily_steam_production") {
-      layout[`step:${sid}`] = { left: startX + 2 * columnWidth, top: 440 };
+      layout[`step:${sid}`] = { left: startX + 180 + 2 * columnWidth, top: 560 };
     } else if (sid === "step_17_annual_steam_production") {
-      layout[`step:${sid}`] = { left: startX + 2 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 2 * columnWidth, top: 860 };
     } else if (sid === "step_19_daily_steam_revenue") {
-      layout[`step:${sid}`] = { left: startX + 3 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 3 * columnWidth, top: 860 };
     } else if (sid === "step_14_daily_electricity") {
-      layout[`step:${sid}`] = { left: startX + 5 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 5 * columnWidth, top: 860 };
     } else if (sid === "step_15_annual_electricity") {
-      layout[`step:${sid}`] = { left: startX + 6 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 6 * columnWidth, top: 860 };
     } else if (sid === "step_18_daily_electricity_cost") {
-      layout[`step:${sid}`] = { left: startX + 7 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 7 * columnWidth, top: 860 };
     } else if (sid === "step_20_daily_operating_spread") {
-      layout[`step:${sid}`] = { left: startX + 8 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 8 * columnWidth, top: 860 };
     } else if (sid === "step_21_annual_operating_spread") {
-      layout[`step:${sid}`] = { left: startX + 9 * columnWidth, top: 660 };
+      layout[`step:${sid}`] = { left: startX + 180 + 9 * columnWidth, top: 860 };
     } else {
-      layout[`step:${sid}`] = { left: startX + (10 + customIdx++) * columnWidth, top: 200 };
+      layout[`step:${sid}`] = { left: startX + 180 + (10 + customIdx++) * columnWidth, top: 220 };
     }
 
     const inputsForStep = Object.values(step.input_map).filter(varName => 
@@ -320,11 +337,13 @@ function computePlan2Layout(pipeline) {
     inputsForStep.forEach((varName, inIdx) => {
       placedInputs.add(varName);
       const stepPos = layout[`step:${sid}`];
-      const colOffset = (inIdx % 2) * 136;
-      const rowOffset = Math.floor(inIdx / 2) * 52;
+      const colOffset = (inIdx % 2) * 148;
+      const rowOffset = Math.floor(inIdx / 2) * 65;
+      // 根据算子所在楼层，精准分配上空输入胶囊的 Y 轴高度，绝不压迫算子顶边
+      const baseTop = stepPos.top > 700 ? 760 : (stepPos.top > 400 ? 460 : (inputsForStep.length > 2 ? 30 : 80));
       layout[`input:${varName}`] = {
         left: stepPos.left + colOffset,
-        top: Math.max(20, stepPos.top - 60 - rowOffset)
+        top: baseTop + rowOffset
       };
     });
   });
@@ -332,7 +351,7 @@ function computePlan2Layout(pipeline) {
   let unplacedIdx = 0;
   pipeline.required_inputs.forEach(pin => {
     if (!placedInputs.has(pin.name)) {
-      layout[`input:${pin.name}`] = { left: startX + unplacedIdx * 136, top: 20 };
+      layout[`input:${pin.name}`] = { left: startX + unplacedIdx * 148, top: 20 };
       unplacedIdx++;
     }
   });
@@ -440,17 +459,35 @@ function drawWires() {
       }
     }
 
-    let d = "";
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
+    let fromX = from.x, fromY = from.y;
+    let isVerticalDrop = false;
+    // 当输入卡片位于算子正上方时，从底部中点垂直引出并优雅进入左侧，根绝向外绕大圈
+    if (sourceKey.startsWith("input:") && na.bottom <= nb.top + 30 && from.x >= to.x - 20) {
+      fromX = (na.left + na.right) / 2 - workspace.left;
+      fromY = na.bottom - workspace.top;
+      isVerticalDrop = true;
+    }
 
-    if (dx > 20) {
+    let d = "";
+    const dx = to.x - fromX;
+    const dy = to.y - fromY;
+
+    if (isVerticalDrop) {
+      const dropY = (fromY + to.y) / 2;
+      const leadX = to.x - 25;
+      d = `M ${fromX} ${fromY} C ${fromX} ${dropY}, ${leadX} ${dropY}, ${to.x} ${to.y}`;
+    } else if (dx > 20) {
       const curvature = Math.max(35, Math.min(160, dx * 0.42));
-      d = `M ${from.x} ${from.y} C ${from.x + curvature} ${from.y}, ${to.x - curvature} ${to.y}, ${to.x} ${to.y}`;
+      d = `M ${fromX} ${fromY} C ${fromX + curvature} ${fromY}, ${to.x - curvature} ${to.y}, ${to.x} ${to.y}`;
+    } else if (to.y > fromY + 40) {
+      // 来源在上方、目标在下方或同一竖列：在两层卡片净空走廊中平滑向左拐入，绝不穿模
+      const gapY = (na.bottom + nb.top) / 2 - workspace.top;
+      const leadX = to.x - 30;
+      d = `M ${fromX} ${fromY} C ${fromX + 25} ${fromY}, ${fromX + 25} ${gapY}, ${(fromX + leadX) / 2} ${gapY} S ${leadX} ${to.y}, ${to.x} ${to.y}`;
     } else {
       const offsetX = 35;
-      const midY = (from.y + to.y) / 2;
-      d = `M ${from.x} ${from.y} C ${from.x + offsetX} ${from.y}, ${from.x + offsetX} ${midY}, ${(from.x + to.x) / 2} ${midY} S ${to.x - offsetX} ${to.y}, ${to.x} ${to.y}`;
+      const midY = (fromY + to.y) / 2;
+      d = `M ${fromX} ${fromY} C ${fromX + offsetX} ${fromY}, ${fromX + offsetX} ${midY}, ${(fromX + to.x) / 2} ${midY} S ${to.x - offsetX} ${to.y}, ${to.x} ${to.y}`;
     }
 
     paths.push(`<path class="wire-base ${wireType} ${activeClass}" data-from="${escapeHtml(sourceKey)}" data-to="${escapeHtml(targetKey)}" data-wire="${escapeHtml(varName)}" d="${d}" marker-end="url(#${markerId})"/>`);
