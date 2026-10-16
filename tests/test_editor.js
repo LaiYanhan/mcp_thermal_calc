@@ -212,3 +212,20 @@ test('缺失来源和循环草稿仍能有限排布，仅由后端决定是否�
   assert.equal(Object.keys(layout).length, 3);
   assert.ok(Object.values(layout).every(p => Number.isFinite(p.left) && Number.isFinite(p.top)));
 });
+
+test('胶囊间只有 18px 间距时，绕行曲线仍有出口且保留圆角', () => {
+  const context = vm.createContext({URLSearchParams});
+  vm.runInContext(readFileSync(require.resolve('../ui_editor.js'), 'utf8'), context);
+  // 150px 胶囊之间保持当前界面间距，不能扩大避障边界封死通道。
+  const rectangles = [{left: 0, right: 150, top: 0, bottom: 60},
+    {left: 168, right: 318, top: 0, bottom: 60},
+    {left: 0, right: 270, top: 220, bottom: 400}];
+  const obstacles = rectangles.map(r => ({left: r.left - 8, right: r.right + 8, top: r.top - 8, bottom: r.bottom + 8}));
+  const route = routeWire({x: 160, y: 30}, {x: -20, y: 300}, obstacles);
+  assert.ok(route.length > 2);
+  context.points = [{x: 150, y: 30}, ...route, {x: 0, y: 300}];
+  const path = vm.runInContext('roundedWire(points)', context);
+  assert.ok(path.startsWith('M 150 30') && path.endsWith('L 0 300'));
+  assert.ok(path.includes(' Q '));
+  assert.ok(!path.includes('NaN'));
+});

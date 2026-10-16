@@ -127,4 +127,12 @@ DEFAULT_VALLEY_SALT_STEAM_PARAMS: Dict[str, Dict[str, Any]] = {
         "min_value": 50.0,
         "max_value": 600.0,
     },
+    "heat_pump_cop":{
+        "value": 1.30,
+        "unit": "/",
+        "description": "热泵制热COP",
+        "min_value": 0.0,
+        "max_value": 12.0,
+    },
+
 }

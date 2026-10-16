@@ -411,8 +411,31 @@ function scheduleWires() {
   wireFrame = requestAnimationFrame(() => { wireFrame = null; drawWires(); });
 }
 
+function roundedWire(points) {
+  if (!points.length) return "";
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const before = points[i - 1], corner = points[i], after = points[i + 1];
+    const incoming = Math.hypot(corner.x - before.x, corner.y - before.y);
+    const outgoing = Math.hypot(after.x - corner.x, after.y - corner.y);
+    if (!incoming || !outgoing) continue;
+    const radius = Math.min(6, incoming / 2, outgoing / 2);
+    const start = {x: corner.x + (before.x - corner.x) * radius / incoming, y: corner.y + (before.y - corner.y) * radius / incoming};
+    const end = {x: corner.x + (after.x - corner.x) * radius / outgoing, y: corner.y + (after.y - corner.y) * radius / outgoing};
+    path += ` L ${start.x} ${start.y} Q ${corner.x} ${corner.y} ${end.x} ${end.y}`;
+  }
+  return path + ` L ${points.at(-1).x} ${points.at(-1).y}`;
+}
+
 function drawWires() {
   const workspace = $("dag-workspace").getBoundingClientRect(), nodes = [...$("node-layer").children];
+  const rectangles = nodes.map(node => {
+    const rect = node.getBoundingClientRect();
+    return {left: rect.left - workspace.left, right: rect.right - workspace.left,
+      top: rect.top - workspace.top, bottom: rect.bottom - workspace.top};
+  });
+  const obstacles = rectangles.map(rect => ({left: rect.left - 8, right: rect.right + 8, top: rect.top - 8, bottom: rect.bottom + 8}));
+  const curve = document.createElementNS("http://www.w3.org/2000/svg", "path");
   const producers = new Map();
   for (const node of nodes) for (const port of node.querySelectorAll("[data-out]")) producers.set(port.dataset.out, {node, port});
   const paths = [];
@@ -485,6 +508,27 @@ function drawWires() {
       d = `M ${fromX} ${fromY} C ${fromX + offsetX} ${fromY}, ${fromX + offsetX} ${midY}, ${(fromX + to.x) / 2} ${midY} S ${to.x - offsetX} ${to.y}, ${to.x} ${to.y}`;
     }
 
+    // 保留原曲线；只在曲线穿过卡片时，沿卡片外侧通道生成圆滑绕行线。
+    curve.setAttribute("d", d);
+    const length = curve.getTotalLength();
+    let blocked = false;
+    for (let distance = 4; distance < length; distance += 8) {
+      const point = curve.getPointAtLength(distance);
+      if (rectangles.some(rect => point.x > rect.left + 1 && point.x < rect.right - 1 && point.y > rect.top + 1 && point.y < rect.bottom - 1)) {
+        blocked = true; break;
+      }
+    }
+    if (blocked) {
+      const start = {x: fromX, y: fromY};
+      const exit = isVerticalDrop ? {x: fromX, y: fromY + 10} : {x: fromX + 10, y: fromY};
+      const entry = {x: to.x - 20, y: to.y};
+      const route = routeWire(exit, entry, obstacles);
+      if (!route.length) {
+        port.title = "卡片遮挡连线通道，请移开重叠卡片";
+        continue;
+      }
+      d = roundedWire([start, ...route, to]);
+    }
     paths.push(`<path class="wire-base ${wireType} ${activeClass}" data-from="${escapeHtml(sourceKey)}" data-to="${escapeHtml(targetKey)}" data-wire="${escapeHtml(varName)}" d="${d}" marker-end="url(#${markerId})"/>`);
   }
 
