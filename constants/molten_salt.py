@@ -45,8 +45,8 @@ class HitecSalt(MoltenSaltProfile):
             name="HITEC熔盐",
             alias="HITEC",
             composition="53% KNO3 + 40% NaNO2 + 7% NaNO3",
-            min_temp_c=190.0,
-            max_temp_c=400.0,
+            min_temp_c=170.0,
+            max_temp_c=410.0,
             default_hot_temp=390.0,
             default_cold_temp=190.0,
         )
