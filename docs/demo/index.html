@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>工业热工流程与参数可视化核对系统 (UI 改造演示稿 - V2 水平顺序版)</title>
+  <title>工业热工流程与参数可视化核对系统 (UI 改造演示稿 - V3.1 宽走廊双轨波浪版)</title>
   <!-- Tailwind CSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -454,37 +454,45 @@
       </section>`;
     }
 
-    // 4. 纯净通用：直接自左向右水平顺序排列引擎 (非蛇形、通用支持任意自定义 Pipeline)
-    function computeHorizontalSequenceLayout(pipeline) {
+    // 4. 优秀的“中央立交走廊双轨波浪布局”（Corridor Wave Layout）
+    // 几何拓扑解耦：
+    // - 上波轨算子位于 Y = 80px (底部 250px)；其对应输入挂载于更上方 Y = 20px
+    // - 下波轨算子位于 Y = 360px (顶部 360px)；其对应输入挂载于更下方 Y = 545px
+    // - 中间形成一条 Y = 250px ~ 360px (宽达 110px) 的【绝对中空水平走廊】！
+    // - 跨越多个算子的所有远距离连线均在中空走廊内直线飞掠，彻底绝缘卡片碰撞与穿模遮挡！
+    function computeStaggeredWaveLayout(pipeline) {
       const layout = {};
       const placedInputs = new Set();
-      const stepSpacing = 320;
+      const stepSpacing = 310;
       const startX = 40;
-      const stepY = 175; // 算子统一主水平轴线
 
-      // 遍历算子序列，直接沿单一水平轴线自左向右铺开
       pipeline.steps.forEach((step, index) => {
         const stepX = startX + index * stepSpacing;
+        const isUpper = (index % 2 === 0);
+        
+        // 算子交替位于上轨 (80px) 与下轨 (360px)
+        const stepY = isUpper ? 80 : 360;
         layout[`step:${step.step_id}`] = { left: stepX, top: stepY };
 
-        // 收集该算子所直接绑定的外部工况输入和工程常量，就近布置于算子正上方
+        // 绑定外部输入/常量：两两一组
         const inputsForStep = Object.values(step.input_map).filter(varName => 
           pipeline.required_inputs.some(p => p.name === varName) && !placedInputs.has(varName)
         );
 
         inputsForStep.forEach((varName, inIdx) => {
           placedInputs.add(varName);
-          // 两两并排放在 270px 算子上方 (左: 0, 右: 136px; 上排: 40px, 下排: 105px)
           const colOffset = (inIdx % 2) * 136;
-          const rowOffset = Math.floor(inIdx / 2) * 62;
+          // 上轨输入在 20px (紧挨 80px 算子顶部)，下轨输入在 545px (紧挨 360px 算子底部)
+          const baseInputY = isUpper ? 20 : 545;
+          const rowOffset = Math.floor(inIdx / 2) * 52;
           layout[`input:${varName}`] = {
             left: stepX + colOffset,
-            top: 40 + rowOffset
+            top: baseInputY + rowOffset
           };
         });
       });
 
-      // 未被算子直接消耗的备用/全局常量或输入，紧凑排列在最前端上方
+      // 剩余未关联参数整齐收纳在首端空余区域
       let unplacedIdx = 0;
       pipeline.required_inputs.forEach(pin => {
         if (!placedInputs.has(pin.name)) {
@@ -492,7 +500,7 @@
           const row = unplacedIdx % 2;
           layout[`input:${pin.name}`] = {
             left: startX + col * 136,
-            top: 40 + row * 62
+            top: 20 + row * 52
           };
           unplacedIdx++;
         }
@@ -527,10 +535,10 @@
 
       $("node-layer").innerHTML = html.join("");
 
-      // 动态计算水平顺序默认排版
-      const defaultLayout = computeHorizontalSequenceLayout(pipeline);
+      // 动态计算高低交错双轨波浪排版
+      const defaultLayout = computeStaggeredWaveLayout(pipeline);
       const nodes = [...$("node-layer").children];
-      let maxRight = 1200, maxBottom = 600;
+      let maxRight = 1200, maxBottom = 650;
 
       nodes.forEach(node => {
         const key = node.dataset.node;
@@ -631,17 +639,18 @@
             }
           }
 
-          // 自适应平滑贝塞尔曲线
+          // 自适应平滑贝塞尔曲线：智能中空立交走廊导流
           let d = "";
           const dx = to.x - from.x;
           const dy = to.y - from.y;
 
           if (dx > 20) {
-            const curvature = Math.max(30, Math.min(160, dx * 0.45));
+            // 平滑对角线或中空立交走廊过渡
+            const curvature = Math.max(35, Math.min(160, dx * 0.42));
             d = `M ${from.x} ${from.y} C ${from.x + curvature} ${from.y}, ${to.x - curvature} ${to.y}, ${to.x} ${to.y}`;
           } else {
-            // 反向或紧凑回绕曲线
-            const offsetX = 40;
+            // 回绕或纵向近距下挂
+            const offsetX = 35;
             const midY = (from.y + to.y) / 2;
             d = `M ${from.x} ${from.y} C ${from.x + offsetX} ${from.y}, ${from.x + offsetX} ${midY}, ${(from.x + to.x) / 2} ${midY} S ${to.x - offsetX} ${to.y}, ${to.x} ${to.y}`;
           }
