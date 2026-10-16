@@ -21,7 +21,7 @@ def test_state_machine_hard_guards():
     # 2. 提议场景，状态变为 SCENARIO_PROPOSED
     sm.propose_existing_scenario(
         session_id=session_id,
-        scenario_id="scenario_valley_salt_steam",
+        scenario_id="scenario_electric_heater_salt_steam",
         user_requirements="需要供汽100t/h",
         initial_inputs={"steam_mass_flow": 100.0},
     )
@@ -60,7 +60,7 @@ def test_state_machine_rejection_flow():
 
     sm.propose_existing_scenario(
         session_id=session_id,
-        scenario_id="scenario_valley_salt_steam",
+        scenario_id="scenario_electric_heater_salt_steam",
         user_requirements="需要供汽",
         initial_inputs={},
     )

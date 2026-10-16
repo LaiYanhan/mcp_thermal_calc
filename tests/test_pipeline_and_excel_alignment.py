@@ -20,7 +20,7 @@ def test_valley_salt_steam_pipeline_engineering_alignment():
       电加热效率 0.985, SGS换热效率 0.99, 储热效率 0.99
       HITEC 熔盐: 高温 390 ℃, 低温 190 ℃, 比热 1.42 kJ/(kg·K), 冗余 1.10
     """
-    pipeline = pipeline_registry.get("scenario_valley_salt_steam")
+    pipeline = pipeline_registry.get("scenario_electric_heater_salt_steam")
     result = pipeline.execute({}, default_formula_registry)
     ctx = result.final_outputs
 

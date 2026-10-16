@@ -4,17 +4,17 @@
 支持启动可视化流程与参数核对服务，可指定渲染任意 pipeline 文件或已注册流水线。
 
 运行方式示例:
-    # 1. 默认启动基准谷电熔盐储热供蒸汽场景:
+    # 1. 默认启动电加热器熔盐储热基准场景:
     python run_web.py
 
-    # 2. 明确指定调试 valley_molten_salt_steam 流水线:
-    python run_web.py -p valley_molten_salt_steam
+    # 2. 明确指定调试电加热器熔盐储热流水线:
+    python run_web.py -p electric_heater_salt_steam
 
-    # 3. 通过具体文件路径指定，并强制以最新代码与默认参数重置画布:
-    python run_web.py -p pipelines/valley_molten_salt_steam.py --reset
+    # 3. 指定调试新建的工业热泵储能供汽流水线，并重置画布:
+    python run_web.py -p industrial_heat_pump_steam --reset
 
     # 4. 直接进入阶段 02 参数核对与计算结果界面:
-    python run_web.py -p valley_molten_salt_steam -s 2
+    python run_web.py -p industrial_heat_pump_steam -s 2
 
     # 5. 查看当前系统中所有已注册的可选流水线清单:
     python run_web.py --list

@@ -6,12 +6,12 @@
 from core.formula import AlgebraicFormula, default_formula_registry
 from core.types import FormulaMetadata, FormulaType, Pin
 
-# ================= 1. 每日消纳谷电电量计算 =================
+# ================= 1.1 电热器每日消纳谷电电量计算 =================
 # 公式：电加热器运行功率 * 每日谷电时长 = 每日消纳谷电电量
-daily_electricity_formula = AlgebraicFormula(
+electric_heater_daily_electricity_formula = AlgebraicFormula(
     metadata=FormulaMetadata(
-        id="operation.daily_electricity",
-        name="日消纳谷电电量计算",
+        id="operation.electric_heater_daily_electricity",
+        name="电热器日消纳谷电电量计算",
         category="operation",
         description="根据电加热器运行功率与每日谷电蓄热时长，计算每日电加热器实际消纳的电量（MWh/d）。",
         notes="",
@@ -29,6 +29,28 @@ daily_electricity_formula = AlgebraicFormula(
     equation_str="daily_power_mwh = electric_heater_power * valley_electricity_hours",
 )
 
+# ================= 1.2 热泵每日消纳谷电电量计算 =================
+# 公式：热泵输入电功率 * 每日谷电时长 = 每日消纳谷电电量
+heat_pump_daily_electricity_formula = AlgebraicFormula(
+    metadata=FormulaMetadata(
+        id="operation.heat_pump_daily_electricity",
+        name="热泵日消纳谷电电量计算",
+        category="operation",
+        description="根据热泵运行功率与每日谷电蓄热时长，计算每日热泵实际消纳的电量（MWh/d）。",
+        notes="",
+        formula_type=FormulaType.ALGEBRAIC,
+        inputs=[
+            Pin("heat_pump_electric_power", "MW", "热泵输入电功率", min_value=0.1, max_value=2000.0),
+            Pin("valley_electricity_hours", "h", "每日谷电时长", min_value=0.5, max_value=24.0, default_value=8.0),
+        ],
+        outputs=[
+            Pin("daily_power_mwh", "MWh", "每日消纳谷电电量", min_value=0.1, max_value=48000.0)
+        ],
+        expression="daily_power_mwh = heat_pump_electric_power * valley_electricity_hours",
+        is_bidirectional=True,
+    ),
+    equation_str="daily_power_mwh = heat_pump_electric_power * valley_electricity_hours",
+)
 
 # ================= 2. 年消纳谷电电量计算 =================
 # 公式：每日消纳谷电电量 * 年运行天数 / 10 = 年累计用电量
@@ -200,7 +222,8 @@ annual_operating_spread_formula = AlgebraicFormula(
 
 
 # 注册所有运行与经济公式
-default_formula_registry.register(daily_electricity_formula)
+default_formula_registry.register(electric_heater_daily_electricity_formula)
+default_formula_registry.register(heat_pump_daily_electricity_formula)
 default_formula_registry.register(annual_electricity_formula)
 default_formula_registry.register(daily_steam_production_formula)
 default_formula_registry.register(annual_steam_production_formula)

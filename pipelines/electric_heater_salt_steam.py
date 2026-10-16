@@ -1,6 +1,9 @@
 """
-基准计算管道：电加热器熔盐储热供汽场景 (Electric Heater with Molten Salt Storage Steam Supply Pipeline)
-原标识：scenario_valley_salt_steam -> 现规范：scenario_electric_heater_salt_steam
+基准计算管道：电加热器熔盐储热供汽场景 (Electric Heater with Molten Salt Storage Steam Supply Pipeline)、
+
+场景标识: scenario_electric_heater_salt_steam
+场景名称: 电加热器熔盐储热供汽场景
+所属分类: electric_heater_salt_steam
 """
 
 from constants.default_parameters import DEFAULT_VALLEY_SALT_STEAM_PARAMS
@@ -241,7 +244,3 @@ electric_heater_salt_steam_pipeline = Pipeline(
 # 自动注册进管道注册表
 pipeline_registry.register(electric_heater_salt_steam_pipeline)
 
-# 向前兼容别名定义
-VALLEY_SALT_STEAM_REQUIRED_INPUTS = ELECTRIC_HEATER_SALT_STEAM_REQUIRED_INPUTS
-VALLEY_SALT_STEAM_STEPS = ELECTRIC_HEATER_SALT_STEAM_STEPS
-valley_molten_salt_steam_pipeline = electric_heater_salt_steam_pipeline
