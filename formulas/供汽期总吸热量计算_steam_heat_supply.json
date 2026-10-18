@@ -1,0 +1,41 @@
+{
+  "id": "thermal.steam_heat_supply",
+  "name": "供汽期总吸热量计算",
+  "category": "thermal",
+  "description": "根据SGS实际换热功率与供汽时长，将功率转换为供汽周期累计所需释放的总热能量（MWh）。",
+  "notes": "",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "sgs_power",
+      "unit": "MW",
+      "description": "SGS实际换热功率",
+      "min_value": 0.1,
+      "max_value": 2000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "steam_supply_hours",
+      "unit": "h",
+      "description": "每日连续供汽时长",
+      "min_value": 0.5,
+      "max_value": 24.0,
+      "default_value": 8.0,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "steam_heat_supply",
+      "unit": "MWh",
+      "description": "每日供汽总释热量",
+      "min_value": 0.1,
+      "max_value": 50000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "steam_heat_supply = sgs_power * steam_supply_hours",
+  "is_bidirectional": true
+}

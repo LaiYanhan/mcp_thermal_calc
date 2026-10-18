@@ -24,8 +24,8 @@ class Pin:
     name: str  # 变量符号/英文字段名，如 steam_pressure
     unit: str  # 物理单位，如 MPa, ℃, t/h, MW, MWh, kJ/kg
     description: str  # 详细中文说明与物理含义，如 "蒸汽工作压力"
-    min_value: Optional[float] = None  # 合理物理下限
-    max_value: Optional[float] = None  # 合理物理上限
+    min_value: Optional[float] = None  # 界面参考下限，不拦截计算
+    max_value: Optional[float] = None  # 界面参考上限，不拦截计算
     default_value: Optional[float] = None  # 默认基准值（若有）
     kind: str = "input"  # input 工况输入 / constant 工程常量
 
@@ -45,13 +45,9 @@ class Pin:
             self.validate(self.default_value)
 
     def validate(self, value: float) -> None:
-        """校验数值是否在合理物理区间内"""
+        """只校验有限数值；范围字段是界面参考元数据。"""
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise ValueError(f"参数 '{self.description}' ({self.name}) 必须为有限数值")
-        if self.min_value is not None and value < self.min_value:
-            raise ValueError(f"参数 '{self.description}' ({self.name}) 数值 {value} 小于合理下限 {self.min_value} {self.unit}")
-        if self.max_value is not None and value > self.max_value:
-            raise ValueError(f"参数 '{self.description}' ({self.name}) 数值 {value} 超过合理上限 {self.max_value} {self.unit}")
 
 
 def units_match(left: str, right: str) -> bool:
@@ -82,15 +78,10 @@ class InputConstraint:
             raise ValueError("约束提示必须为文本")
 
     def validate(self, values: Dict[str, float]) -> None:
-        if self.variable not in values:
-            return
-        value = values[self.variable]
-        if self.min_value is not None and value < self.min_value:
-            raise ValueError(self.message or f"参数 {self.variable} 不能小于 {self.min_value}")
-        if self.max_value is not None and value > self.max_value:
-            raise ValueError(self.message or f"参数 {self.variable} 不能大于 {self.max_value}")
-        if self.greater_than is not None and self.greater_than in values and value <= values[self.greater_than]:
-            raise ValueError(self.message or f"参数 {self.variable} 必须大于 {self.greater_than}")
+        """保留旧约束的数据契约，仅检查参与值是否为有限数值。"""
+        for name in (self.variable, self.greater_than):
+            if name in values:
+                Pin(name, "/", name).validate(values[name])
 
 
 @dataclass
@@ -108,6 +99,7 @@ class FormulaMetadata:
     outputs: List[Pin]  # 默认求解方向的输出引脚
     expression: Optional[str] = None  # 代数表达式（仅 ALGEBRAIC 类型使用，如 "P = m * dh / 3600"）
     is_bidirectional: bool = True  # 是否支持双向逆推
+    handler: Optional[str] = None  # 经验算子的已注册处理函数标识
 
 
 class PipelineStep(BaseModel):

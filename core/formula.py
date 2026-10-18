@@ -11,7 +11,10 @@ from dataclasses import asdict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import sympy as sp
 from core.types import FormulaMetadata, FormulaType, Pin
-from core.storage import data_directory, read_json, write_json, synchronized
+from core.storage import read_json, write_json, synchronized
+from core.assets import asset_directory, definition_path
+from core.definitions import formula_definition_adapter
+from core.handlers import get_handler
 
 
 def parse_math_expression(expression: str):
@@ -228,17 +231,11 @@ class EmpiricalFormula(BaseFormula):
     """
     经验公式 / 物性黑盒函数 / 离散查表选型
     """
-    def __init__(self, metadata: FormulaMetadata, func: Callable[[Dict[str, float]], Dict[str, float]], validator=None):
+    def __init__(self, metadata: FormulaMetadata, func: Callable[[Dict[str, float]], Dict[str, float]]):
         super().__init__(metadata)
         self.func = func
-        self.validator = validator
         self.metadata.formula_type = FormulaType.EMPIRICAL
         self.metadata.is_bidirectional = False
-
-    def validate_inputs(self, inputs: Dict[str, float]) -> None:
-        super().validate_inputs(inputs)
-        if self.validator:
-            self.validator(inputs)
 
     def execute(self, inputs: Dict[str, float]) -> Dict[str, float]:
         self.validate_inputs(inputs)
@@ -276,59 +273,75 @@ class FormulaRegistry:
             raise ValueError(f"算子 {fid} 已存在，请使用原地修改")
         self._formulas[fid] = formula
 
-    @synchronized
-    def save_operator(self, data: Dict[str, Any], update: bool = False) -> BaseFormula:
-        """先构造并验证完整候选对象，落盘成功后再原地替换注册项。"""
-        fid = data.get("operator_id") if update else data.get("id")
-        if not isinstance(fid, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", fid):
-            raise ValueError("算子 ID 格式不正确")
-        if not update and fid in self._formulas:
-            raise ValueError(f"算子 {fid} 已存在，请使用原地修改")
-        original = self.get(fid) if update else None
-        equation = data.get("formula", data.get("equation"))
-        if original:
-            metadata = deepcopy(original.metadata)
-            for key in ("name", "description", "notes"):
-                if key in data:
-                    setattr(metadata, key, data[key])
-            if not isinstance(original, AlgebraicFormula):
-                if equation and equation != metadata.expression:
-                    raise ValueError("物性/查表算子不支持代数公式编辑")
-                candidate = EmpiricalFormula(metadata, original.func, original.validator)
-            else:
-                candidate = AlgebraicFormula(metadata, equation or original.equation_str)
-        else:
-            if not data.get("inputs") or not data.get("outputs"):
-                raise ValueError("新增算子必须明确输入、输出引脚及其单位")
-            metadata = FormulaMetadata(
-                id=fid, name=data.get("name", ""), category=data.get("category", "custom"),
-                description=data.get("description", ""), notes=data.get("notes", ""),
-                formula_type=FormulaType.ALGEBRAIC,
-                inputs=[Pin(**p) for p in data["inputs"]],
-                outputs=[Pin(**p) for p in data["outputs"]],
-            )
-            candidate = AlgebraicFormula(metadata, equation or "")
-        if not isinstance(candidate.metadata.name, str) or not candidate.metadata.name.strip():
+    @staticmethod
+    def from_definition(data) -> BaseFormula:
+        definition = formula_definition_adapter.validate_python(data)
+        metadata = FormulaMetadata(**{
+            **definition.model_dump(exclude={"inputs", "outputs", "formula_type"}),
+            "formula_type": FormulaType(definition.formula_type),
+            "inputs": [Pin(**pin.model_dump()) for pin in definition.inputs],
+            "outputs": [Pin(**pin.model_dump()) for pin in definition.outputs],
+        })
+        if not metadata.name.strip():
             raise ValueError("算子名称不能为空")
-        stored = read_json(data_directory() / "operators.json", {})
-        stored[fid] = asdict(candidate.metadata)
-        write_json(data_directory() / "operators.json", stored)
-        self._formulas[fid] = candidate
+        pins = metadata.inputs + metadata.outputs
+        if len({pin.name for pin in pins}) != len(pins):
+            raise ValueError("算子输入输出引脚不能重复")
+        if metadata.formula_type == FormulaType.ALGEBRAIC:
+            return AlgebraicFormula(metadata, metadata.expression)
+        return EmpiricalFormula(metadata, get_handler(metadata.handler))
+
+    @synchronized
+    def load_directory(self, directory=None) -> None:
+        candidates = dict(self._formulas)
+        for path in sorted((directory or asset_directory("formulas")).rglob("*.json")):
+            try:
+                formula = self.from_definition(read_json(path))
+                if formula.metadata.id in candidates:
+                    raise ValueError(f"重复公式 ID：{formula.metadata.id}")
+                candidates[formula.metadata.id] = formula
+            except (ValueError, TypeError, KeyError) as error:
+                raise ValueError(f"公式 JSON {path} 无效：{error}") from error
+        self._formulas = candidates
+
+    @synchronized
+    def save_definition(self, data, filename=None) -> BaseFormula:
+        candidate = self.from_definition(data)
+        fid = candidate.metadata.id
+        if fid in self._formulas:
+            raise ValueError(f"算子 {fid} 已存在，请使用原地修改")
+        path = definition_path("formulas", fid, filename, candidate.metadata.name)
+        write_json(path, asdict(candidate.metadata))
+        self.register(candidate)
         return candidate
 
     @synchronized
-    def load_saved(self) -> None:
-        for fid, data in read_json(data_directory() / "operators.json", {}).items():
-            metadata = FormulaMetadata(**{**data,
-                "formula_type": FormulaType(data["formula_type"]),
-                "inputs": [Pin(**p) for p in data["inputs"]],
-                "outputs": [Pin(**p) for p in data["outputs"]],
-            })
-            if metadata.formula_type == FormulaType.ALGEBRAIC:
-                self._formulas[fid] = AlgebraicFormula(metadata, metadata.expression)
-            else:
-                original = self.get(fid)
-                self._formulas[fid] = EmpiricalFormula(metadata, original.func, original.validator)
+    def save_operator(self, data: Dict[str, Any], update: bool = False) -> BaseFormula:
+        """适配现有前端编辑契约；验证后以标准 JSON 资产持久化。"""
+        fid = data.get("operator_id") if update else data.get("id")
+        original = self.get(fid) if update else None
+        equation = data.get("formula", data.get("equation"))
+        if original:
+            definition = asdict(original.metadata)
+            for key in ("name", "description", "notes"):
+                if key in data:
+                    definition[key] = data[key]
+            if isinstance(original, AlgebraicFormula):
+                definition["expression"] = equation or original.equation_str
+            elif equation and equation != definition["expression"]:
+                raise ValueError("物性/查表算子不支持代数公式编辑")
+        else:
+            definition = {
+                "id": fid, "name": data.get("name", ""), "category": data.get("category", "custom"),
+                "description": data.get("description", ""), "notes": data.get("notes", ""),
+                "formula_type": "algebraic", "expression": equation or "",
+                "inputs": data.get("inputs", []), "outputs": data.get("outputs", []),
+            }
+            return self.save_definition(definition)
+        candidate = self.from_definition(definition)
+        write_json(definition_path("formulas", fid, name=candidate.metadata.name), asdict(candidate.metadata))
+        self._formulas[fid] = candidate
+        return candidate
 
     def get(self, formula_id: str) -> BaseFormula:
         if formula_id not in self._formulas:
@@ -344,6 +357,7 @@ class FormulaRegistry:
         for f in self._formulas.values():
             meta = f.metadata
             item = {
+                "definition": asdict(meta),
                 "id": meta.id,
                 "name": meta.name,
                 "category": meta.category,

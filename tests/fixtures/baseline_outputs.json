@@ -1,0 +1,41 @@
+{
+  "scenario_electric_heater_salt_steam": {
+    "steam_enthalpy": 2795.98392490778,
+    "feedwater_enthalpy": 84.00605394281986,
+    "daily_steam_tons": 800.0,
+    "enthalpy_diff": 2711.97787096496,
+    "annual_steam_wan_tons": 26.400000000000002,
+    "daily_steam_revenue": 144000.0,
+    "theoretical_power": 75.33271863791555,
+    "sgs_power": 76.09365518981369,
+    "steam_heat_supply": 608.7492415185095,
+    "thermal_storage_capacity": 614.8982237560703,
+    "electric_heater_power": 78.03276951219165,
+    "salt_mass": 8573.932979133939,
+    "salt_mass_tons": 8580.0,
+    "daily_power_mwh": 624.2621560975332,
+    "annual_power_wan_kwh": 20600.651151218597,
+    "daily_electricity_cost": 187278.64682925996,
+    "daily_operating_spread": -43278.64682925996
+  },
+  "scenario_industrial_heat_pump_steam": {
+    "steam_enthalpy": 2795.98392490778,
+    "feedwater_enthalpy": 84.00605394281986,
+    "daily_steam_tons": 800.0,
+    "enthalpy_diff": 2711.97787096496,
+    "annual_steam_wan_tons": 26.400000000000002,
+    "daily_steam_revenue": 144000.0,
+    "theoretical_power": 75.33271863791555,
+    "sgs_power": 76.09365518981369,
+    "steam_heat_supply": 608.7492415185095,
+    "thermal_storage_capacity": 614.8982237560703,
+    "heat_pump_thermal_power": 76.86227796950878,
+    "salt_mass": 8573.932979133939,
+    "heat_pump_electric_power": 59.12482920731444,
+    "salt_mass_tons": 8580.0,
+    "daily_power_mwh": 472.99863365851553,
+    "annual_power_wan_kwh": 15608.954910731012,
+    "daily_electricity_cost": 141899.59009755464,
+    "daily_operating_spread": 2100.409902445361
+  }
+}

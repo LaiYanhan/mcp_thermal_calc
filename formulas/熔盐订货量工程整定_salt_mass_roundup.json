@@ -1,0 +1,33 @@
+{
+  "id": "sizing.salt_mass_roundup",
+  "name": "熔盐订货量工程整定",
+  "category": "sizing",
+  "description": "将理论计算熔盐净重向上圆整至整10吨，便于设备罐容设计与大宗原材料采购订货。",
+  "notes": "",
+  "formula_type": "empirical",
+  "inputs": [
+    {
+      "name": "salt_mass",
+      "unit": "t",
+      "description": "理论熔盐装填量",
+      "min_value": 1.0,
+      "max_value": 1000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "salt_mass_tons",
+      "unit": "t",
+      "description": "工程整定熔盐订购量",
+      "min_value": 10.0,
+      "max_value": 1000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": null,
+  "is_bidirectional": false,
+  "handler": "sizing.salt_mass_roundup"
+}

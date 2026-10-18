@@ -13,12 +13,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mcp.server.mcpserver import MCPServer
-import formulas
-import pipelines
+import core.catalog
 from core.formula import default_formula_registry
 from core.pipeline import pipeline_registry
 from core.state_machine import workflow_manager, StateTransitionError
-from core.extensions import parse_definition, validate_filename
+from core.extensions import parse_definition
+from core.assets import validate_filename
+from core.definitions import FormulaDefinition, PipelineDefinition
 from server.web_app import ensure_web_server_running
 
 mcp_server = MCPServer("thermal-calc-sizing-engine")
@@ -115,32 +116,36 @@ def solve_atomic_formula(formula_id: str, known_variables: Dict[str, Any], targe
 
 
 @mcp_server.tool()
-def register_new_formula(formula_code: str, sub_category: str, filename: str, human_approved: StrictBool) -> str:
-    """保存人工审核通过的声明式公式（JSON 或受限模板），校验、落盘并即时注册。"""
+def register_new_formula(formula_definition: FormulaDefinition, filename: str, human_approved: StrictBool) -> str:
+    """将人工审核通过的严格 JSON 公式保存到 formulas/ 并注册。handler 仅能引用已注册的物性/选型函数。
+    filename 使用 <中文计算含义>_<英文标识>.json；不接受 Python 源码。注册不会授予会话计算权限。
+    """
     if human_approved is not True:
         return response({"status": "REJECTED", "error": "请先获得人类工程师对公式的审核同意"})
     try:
         validate_filename(filename)
-        validate_filename(sub_category)
-        data = parse_definition(formula_code, "formula")
-        data["category"] = sub_category
-        formula = default_formula_registry.save_operator(data)
+        data = formula_definition.model_dump() if hasattr(formula_definition, "model_dump") else formula_definition
+        data = parse_definition(data, "formula")
+        formula = default_formula_registry.save_definition(data, filename)
         return response({"status": "SUCCESS", "formula_id": formula.metadata.id, "message": "公式已保存并注册"})
-    except (ValueError, TypeError, KeyError, SyntaxError) as error:
+    except (ValueError, TypeError, KeyError, OSError) as error:
         return response({"error": str(error)})
 
 
 @mcp_server.tool()
-def register_new_pipeline(pipeline_code: str, pipeline_filename: str, human_approved: StrictBool) -> str:
-    """保存人工审核通过的声明式 Pipeline（JSON 或受限模板），验证 DAG 后即时注册。"""
+def register_new_pipeline(pipeline_definition: PipelineDefinition, pipeline_filename: str, human_approved: StrictBool) -> str:
+    """将人工审核通过的自包含 JSON Pipeline 保存到 pipelines/，验证 DAG 后注册。
+    输入与常量元数据及默认值均须内联；注册不替代场景和参数的人工确认。
+    """
     if human_approved is not True:
         return response({"status": "REJECTED", "error": "请先获得人类对流水线的审核同意"})
     try:
         validate_filename(pipeline_filename)
-        pipeline = parse_definition(pipeline_code, "pipeline")
-        pipeline_registry.save_pipeline(pipeline)
+        data = pipeline_definition.model_dump() if hasattr(pipeline_definition, "model_dump") else pipeline_definition
+        pipeline = parse_definition(data, "pipeline")
+        pipeline_registry.save_pipeline(pipeline, pipeline_filename)
         return response({"status": "SUCCESS", "pipeline_id": pipeline.id, "message": "流水线已保存并注册"})
-    except (ValueError, TypeError, KeyError, SyntaxError) as error:
+    except (ValueError, TypeError, KeyError, OSError) as error:
         return response({"error": str(error)})
 
 

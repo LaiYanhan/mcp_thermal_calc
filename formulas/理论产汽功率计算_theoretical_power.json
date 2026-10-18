@@ -1,0 +1,41 @@
+{
+  "id": "thermal.theoretical_power",
+  "name": "理论产汽功率计算",
+  "category": "thermal",
+  "description": "在额定参数下产生这些蒸汽所需的理论净吸热功率（MWt）。",
+  "notes": "除以 3600 为物理单位转换系数：(t/h)*(kJ/kg) 转换为 MWt。",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "steam_mass_flow",
+      "unit": "t/h",
+      "description": "额定蒸汽质量流量",
+      "min_value": 0.1,
+      "max_value": 2000.0,
+      "default_value": 100.0,
+      "kind": "input"
+    },
+    {
+      "name": "enthalpy_diff",
+      "unit": "kJ/kg",
+      "description": "进出口有效焓差",
+      "min_value": 100.0,
+      "max_value": 3500.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "theoretical_power",
+      "unit": "MW",
+      "description": "理论产汽功率",
+      "min_value": 0.1,
+      "max_value": 2000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "theoretical_power = steam_mass_flow * enthalpy_diff / 3600",
+  "is_bidirectional": true
+}

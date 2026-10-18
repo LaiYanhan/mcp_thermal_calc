@@ -1,0 +1,50 @@
+{
+  "id": "thermal.electric_heater_power",
+  "name": "电加热器额定电功率计算",
+  "category": "thermal",
+  "description": "基于储热总能量在谷电时间窗口内完成蓄热的能量守恒，折算电加热器额定电功率（MWe）。",
+  "notes": "供汽时长与谷电时长已解耦，基于总储热能量除以谷电时长折算。",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "thermal_storage_capacity",
+      "unit": "MWh",
+      "description": "储热罐额定储热容量",
+      "min_value": 0.1,
+      "max_value": 60000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "valley_electricity_hours",
+      "unit": "h",
+      "description": "每日低谷电蓄热时长",
+      "min_value": 0.5,
+      "max_value": 24.0,
+      "default_value": 8.0,
+      "kind": "input"
+    },
+    {
+      "name": "electric_heater_efficiency",
+      "unit": "/",
+      "description": "电加热器电热转换效率",
+      "min_value": 0.8,
+      "max_value": 1.0,
+      "default_value": 0.985,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "electric_heater_power",
+      "unit": "MW",
+      "description": "电加热器所需电功率",
+      "min_value": 0.1,
+      "max_value": 2000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "electric_heater_power = thermal_storage_capacity / valley_electricity_hours / electric_heater_efficiency",
+  "is_bidirectional": true
+}

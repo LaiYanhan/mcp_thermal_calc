@@ -1,0 +1,41 @@
+{
+  "id": "thermal.enthalpy_diff",
+  "name": "蒸汽进出口焓差计算",
+  "category": "thermal",
+  "description": "计算蒸汽发生系统工质进出口比焓增量（焓差），反映每公斤水吸热相变为蒸汽所需吸收的热量。",
+  "notes": "焓差必须大于 0；若计算出负值或异常极小值说明给水参数异常或高于蒸汽参数。",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "steam_enthalpy",
+      "unit": "kJ/kg",
+      "description": "产出蒸汽比焓",
+      "min_value": 1000.0,
+      "max_value": 4000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "feedwater_enthalpy",
+      "unit": "kJ/kg",
+      "description": "入口给水比焓",
+      "min_value": 10.0,
+      "max_value": 1000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "enthalpy_diff",
+      "unit": "kJ/kg",
+      "description": "进出口有效焓差",
+      "min_value": 100.0,
+      "max_value": 3500.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "enthalpy_diff = steam_enthalpy - feedwater_enthalpy",
+  "is_bidirectional": true
+}

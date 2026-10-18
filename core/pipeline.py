@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Set
 from dataclasses import asdict
 from copy import deepcopy
 from pathlib import Path
-import importlib.util
 import math
 import re
 from core.formula import FormulaRegistry, registry as default_registry
@@ -19,7 +18,9 @@ from core.types import (
     FormulaOutput,
     units_match,
 )
-from core.storage import data_directory, record_path, read_json, write_json, synchronized
+from core.storage import read_json, write_json, synchronized
+from core.assets import asset_directory, definition_path
+from core.definitions import PipelineDefinition
 
 
 class PipelineValidationError(ValueError):
@@ -307,7 +308,7 @@ class Pipeline:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Pipeline":
         """从字典反序列化生成管道实例"""
-        data = pipeline_registry.migrate_definition(data)
+        data = deepcopy(data)
         required_inputs = [
             Pin(
                 name=p["name"],
@@ -374,18 +375,6 @@ class PipelineRegistry:
     """
     def __init__(self):
         self._pipelines: Dict[str, Pipeline] = {}
-        self._definition_migrations = []
-
-    def register_definition_migration(self, migration) -> None:
-        """业务模块注册旧定义转换；核心不解释业务字段。"""
-        if migration not in self._definition_migrations:
-            self._definition_migrations.append(migration)
-
-    def migrate_definition(self, data):
-        result = deepcopy(data)
-        for migration in self._definition_migrations:
-            result = migration(result)
-        return result
 
     def register(self, pipeline: Pipeline) -> None:
         if pipeline.id in self._pipelines:
@@ -393,83 +382,54 @@ class PipelineRegistry:
         self._pipelines[pipeline.id] = pipeline
 
     @synchronized
-    def save_pipeline(self, pipeline: Pipeline) -> None:
+    def save_pipeline(self, pipeline: Pipeline, filename=None) -> None:
         pipeline.validated_steps()
         if pipeline.id in self._pipelines:
             raise ValueError(f"流水线 {pipeline.id} 已存在")
-        write_json(record_path("pipelines", pipeline.id), pipeline.to_dict())
+        definition = PipelineDefinition.model_validate(pipeline.to_dict()).model_dump()
+        write_json(definition_path("pipelines", pipeline.id, filename), definition)
         self.register(pipeline)
 
-    def load_saved(self) -> None:
-        for path in (data_directory() / "pipelines").glob("*.json"):
-            pipeline = Pipeline.from_dict(read_json(path))
-            pipeline.validated_steps()
-            self.register(pipeline)
+    @synchronized
+    def load_directory(self, directory=None, formula_registry=None) -> None:
+        candidates = dict(self._pipelines)
+        for path in sorted((directory or asset_directory("pipelines")).rglob("*.json")):
+            try:
+                data = PipelineDefinition.model_validate(read_json(path)).model_dump()
+                pipeline = Pipeline.from_dict(data)
+                pipeline.validated_steps(formula_registry)
+                if pipeline.id in candidates:
+                    raise ValueError(f"重复流水线 ID：{pipeline.id}")
+                candidates[pipeline.id] = pipeline
+            except (ValueError, TypeError, KeyError) as error:
+                raise ValueError(f"流水线 JSON {path} 无效：{error}") from error
+        self._pipelines = candidates
 
     def get(self, pipeline_id: str) -> Pipeline:
         if pipeline_id not in self._pipelines:
-            if not self._pipelines:
-                try:
-                    import pipelines  # noqa: F401
-                except ImportError:
-                    pass
-            if pipeline_id in self._pipelines:
-                return self._pipelines[pipeline_id]
             raise KeyError(f"未注册的计算管道ID: '{pipeline_id}'")
         return self._pipelines[pipeline_id]
 
     def resolve(self, target: str) -> Pipeline:
-        """
-        根据管道 ID、中文名称、模块文件名或 .py 文件路径解析并获取 Pipeline 实例。
-        若指定文件未被导入，则自动进行动态加载与注册。
-        """
-        target_clean = target.strip().replace("\\", "/")
-
-        # 确保内置 pipelines 包已加载
-        if not self._pipelines:
-            try:
-                import pipelines  # noqa: F401
-            except ImportError:
-                pass
-
-        # 1. 精确 ID 匹配
-        if target_clean in self._pipelines:
-            return self._pipelines[target_clean]
-
-        # 2. 候选路径检测与动态加载 (.py 文件或 pipelines 目录下的对应模块)
-        candidate_paths = [
-            Path(target_clean),
-            Path("pipelines") / target_clean,
-            Path("pipelines") / (target_clean if target_clean.endswith(".py") else f"{target_clean}.py"),
-        ]
-        for path in candidate_paths:
-            if path.exists() and path.suffix == ".py":
-                spec = importlib.util.spec_from_file_location(path.stem, str(path.resolve()))
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    try:
-                        spec.loader.exec_module(mod)
-                    except ValueError as err:
-                        if "已存在" not in str(err):
-                            raise
-                    for attr in dir(mod):
-                        val = getattr(mod, attr)
-                        if isinstance(val, Pipeline):
-                            if val.id not in self._pipelines:
-                                self.register(val)
-                            return val
-
-        # 3. 按名称或标识模糊词根匹配
-        tokens = set(target_clean.lower().replace(".py", "").replace("scenario_", "").replace("pipeline_", "").split("_"))
-        for p in self._pipelines.values():
-            if target_clean in p.id or target_clean in p.name:
-                return p
-            p_tokens = set(p.id.lower().replace("scenario_", "").replace("pipeline_", "").split("_"))
-            if tokens.issubset(p_tokens) or p_tokens.issubset(tokens) or (tokens & p_tokens and len(tokens & p_tokens) >= 2):
-                return p
-
-        available = [p.id for p in self._pipelines.values()]
-        raise KeyError(f"未找到匹配的计算管道: '{target}'。当前已注册管道: {available}")
+        """按 ID、名称或 JSON 文件解析管道，绝不查找或执行 Python 文件。"""
+        clean = target.strip().replace("\\", "/")
+        if clean in self._pipelines:
+            return self._pipelines[clean]
+        path = Path(clean)
+        if path.suffix and path.suffix != ".json":
+            raise ValueError("流水线文件必须为 JSON")
+        if path.suffix == ".json":
+            for candidate in (path, asset_directory("pipelines") / path.name):
+                if candidate.is_file():
+                    pipeline = Pipeline.from_dict(PipelineDefinition.model_validate(read_json(candidate)).model_dump())
+                    pipeline.validated_steps()
+                    return pipeline
+        stem = path.stem
+        matches = [pipeline for pipeline in self._pipelines.values()
+                   if stem in (pipeline.id, pipeline.name) or pipeline.id == "scenario_" + stem]
+        if len(matches) == 1:
+            return matches[0]
+        raise KeyError(f"未找到唯一匹配的计算管道: '{target}'。当前已注册管道: {list(self._pipelines)}")
 
     def list_all(self) -> List[Pipeline]:
         return list(self._pipelines.values())
@@ -478,6 +438,7 @@ class PipelineRegistry:
         catalog = []
         for p in self._pipelines.values():
             catalog.append({
+                "definition": p.to_dict(),
                 "id": p.id,
                 "name": p.name,
                 "category": p.category,

@@ -3,6 +3,8 @@
 - **状态**: Accepted
 - **日期**: 2026-10-16
 
+更新：[ADR-0014](0014-pure-json-declarative-formulas-and-pipelines.md) 移除应用层相态拦截并将处理函数迁入 `core/handlers.py`，继续使用 IAPWS-95 和干饱和蒸汽判定。
+
 ## 背景与问题
 
 水和水蒸气的热力学物性在工程与科研中有两套主要的国际水和水蒸气性质学会（IAPWS）标准：

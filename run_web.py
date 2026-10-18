@@ -26,7 +26,7 @@ import threading
 import time
 import webbrowser
 import uvicorn
-import pipelines  # noqa: F401 (确保内置管道自动加载注册)
+import core.catalog  # noqa: F401
 from core.pipeline import pipeline_registry
 from server.web_app import app, WEB_SERVER_HOST, WEB_SERVER_PORT
 
@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument(
         "-p", "--pipeline",
         default="scenario_electric_heater_salt_steam",
-        help="指定要渲染和调试的流水线 (支持 Pipeline ID、模块名或 .py 文件路径，默认: scenario_electric_heater_salt_steam)"
+        help="指定要渲染和调试的流水线 (支持 Pipeline ID、名称或 .json 文件路径，默认: scenario_electric_heater_salt_steam)"
     )
     parser.add_argument(
         "-s", "--stage",
@@ -63,7 +63,7 @@ def parse_args():
     parser.add_argument(
         "-r", "--reset",
         action="store_true",
-        help="强制以代码最新定义重置调试会话（清空过往临时草稿与排版缓存）"
+        help="强制以 JSON 最新定义重置调试会话（清空过往临时草稿与排版缓存）"
     )
     parser.add_argument(
         "-l", "--list",

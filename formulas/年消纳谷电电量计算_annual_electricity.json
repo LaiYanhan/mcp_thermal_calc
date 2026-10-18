@@ -1,0 +1,41 @@
+{
+  "id": "operation.annual_electricity",
+  "name": "年消纳谷电电量计算",
+  "category": "operation",
+  "description": "根据日消纳电量与年有效运行天数，测算年用电总量（万kWh/年）。",
+  "notes": "",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "daily_power_mwh",
+      "unit": "MWh",
+      "description": "每日消纳谷电电量",
+      "min_value": 0.1,
+      "max_value": 48000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "annual_operating_days",
+      "unit": "d",
+      "description": "年运行天数",
+      "min_value": 50.0,
+      "max_value": 365.0,
+      "default_value": 330.0,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "annual_power_wan_kwh",
+      "unit": "万kWh",
+      "description": "年累计用电量",
+      "min_value": 1.0,
+      "max_value": 1000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "annual_power_wan_kwh = daily_power_mwh * annual_operating_days / 10",
+  "is_bidirectional": true
+}

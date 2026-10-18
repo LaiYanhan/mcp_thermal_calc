@@ -68,12 +68,10 @@ def test_inverse_validates_effective_pins_and_dependencies(damage, code):
     assert code in {error["code"] for error in validation["errors"]}
 
 
-def test_inverse_checks_known_and_result_bounds():
+def test_inverse_accepts_knowns_and_results_outside_display_bounds():
     pipeline = Pipeline.from_dict(power_pipeline("steam_mass_flow"))
-    with pytest.raises(ValueError):
-        pipeline.execute({"theoretical_power": -1})
-    with pytest.raises(ValueError):
-        pipeline.execute({"theoretical_power": 2000, "enthalpy_diff": 100})
+    assert pipeline.execute({"theoretical_power": -1}).final_outputs["steam_mass_flow"] < 0
+    assert pipeline.execute({"theoretical_power": 2000, "enthalpy_diff": 100}).final_outputs["steam_mass_flow"] == 72000
 
 
 def test_empirical_keeps_forward_contract_and_all_outputs_are_results():

@@ -41,31 +41,29 @@ def test_declared_constraints_work_for_arbitrary_names_and_roundtrip():
     data["input_constraints"] = [{"variable": "upper", "greater_than": "lower", "message": "上限必须大于下限"},
                                  {"variable": "upper", "min_value": 0, "max_value": 10}]
     pipeline = Pipeline.from_dict(Pipeline.from_dict(data).to_dict())
-    with pytest.raises(ValueError, match="上限必须大于下限"):
-        pipeline.inspect_inputs({}, registry)
+    assert pipeline.execute({}, registry).final_outputs == {"answer": 3}
     assert pipeline.execute({"upper": 3}, registry).final_outputs == {"answer": 5}
-    with pytest.raises(ValueError):
-        pipeline.inspect_inputs({"upper": 11}, registry)
+    assert pipeline.execute({"upper": 11}, registry).final_outputs == {"answer": 13}
 
 
 @pytest.mark.parametrize("identifier", ["scenario_electric_heater_salt_steam", "scenario_industrial_heat_pump_steam"])
-def test_real_pipelines_declare_temperature_order(identifier):
+def test_real_pipelines_do_not_enforce_temperature_order(identifier):
     pipeline = Pipeline.from_dict(pipeline_registry.get(identifier).to_dict())
-    with pytest.raises(ValueError, match="高温熔盐温度必须大于低温熔盐温度"):
-        pipeline.inspect_inputs({"salt_hot_temperature": 190, "salt_cold_temperature": 190})
+    assert pipeline.inspect_inputs({"salt_hot_temperature": 190, "salt_cold_temperature": 190})["is_complete"]
+    with pytest.raises(ValueError, match="非有限实数"):
+        pipeline.execute({"salt_hot_temperature": 190, "salt_cold_temperature": 190})
     assert pipeline.execute({}).results
 
 
-def test_legacy_salt_definition_keeps_validation_without_mutating_source():
+def test_legacy_salt_profile_is_ignored_without_mutating_source():
     data = pipeline_registry.get("scenario_electric_heater_salt_steam").to_dict()
     data.pop("input_constraints", None)
     data["salt_profile"] = "HITEC"
     pipeline = Pipeline.from_dict(data)
     assert "salt_profile" not in pipeline.to_dict()
-    assert pipeline.to_dict()["input_constraints"]
+    assert pipeline.to_dict()["input_constraints"] == []
     assert "input_constraints" not in data
-    with pytest.raises(ValueError):
-        pipeline.inspect_inputs({"salt_hot_temperature": 600})
+    assert pipeline.inspect_inputs({"salt_hot_temperature": 600})["is_complete"]
 
 
 def test_renamed_inputs_keep_declared_rules_and_results():
@@ -82,10 +80,8 @@ def test_renamed_inputs_keep_declared_rules_and_results():
             constraint["greater_than"] = renamed[constraint["greater_than"]]
     pipeline = Pipeline.from_dict(data)
     assert pipeline.execute({}).final_outputs == original.execute({}).final_outputs
-    with pytest.raises(ValueError):
-        pipeline.inspect_inputs({renamed["salt_hot_temperature"]: 190})
-    with pytest.raises(ValueError):
-        pipeline.inspect_inputs({renamed["salt_hot_temperature"]: 600})
+    assert pipeline.inspect_inputs({renamed["salt_hot_temperature"]: 190})["is_complete"]
+    assert pipeline.inspect_inputs({renamed["salt_hot_temperature"]: 600})["is_complete"]
 
 
 @pytest.mark.parametrize("damage", ["missing", "unit"])
@@ -117,12 +113,12 @@ def test_web_save_confirm_and_calculate_preserves_constraints(identifier):
     base = "/api/session/constraint_web"
     view = client.get(base + "?pipeline=" + identifier + "&reset=1").json()
     data = view["pipeline"]
+    data["input_constraints"] = [{"variable": "salt_hot_temperature", "min_value": 200, "max_value": 450, "greater_than": None, "message": ""}]
     constraints = deepcopy(data["input_constraints"])
-    assert constraints
     data["layout"] = {"step:step_1_steam_enthalpy": {"left": 123, "top": 234}}
     assert client.post(base + "/pipeline", json=data).status_code == 200
     assert client.post(base + "/confirm_scenario", json={"confirmed": True}).status_code == 200
-    assert client.post(base + "/parameters", json={"parameters": {"salt_hot_temperature": 190}}).status_code == 400
+    assert client.post(base + "/parameters", json={"parameters": {"salt_hot_temperature": 600}}).status_code == 200
     assert client.post(base + "/parameters", json={"parameters": {}}).status_code == 200
     assert client.post(base + "/confirm_parameters", json={"confirmed": True}).status_code == 200
     response = client.post(base + "/calculate")
@@ -133,26 +129,21 @@ def test_web_save_confirm_and_calculate_preserves_constraints(identifier):
 
 def test_old_session_constraints_survive_restart():
     data = pipeline_registry.get("scenario_electric_heater_salt_steam").to_dict()
-    data.pop("input_constraints")
-    data["salt_profile"] = "HITEC"
+    data["input_constraints"] = [{"variable": "salt_hot_temperature", "min_value": 200, "max_value": 450, "greater_than": None, "message": ""}]
     write_json(record_path("sessions", "legacy_constraints"), {
         "session_id": "legacy_constraints", "pipeline_data": data,
         "scenario_id": data["id"], "provided_parameters": {"salt_hot_temperature": 600},
     })
     script = """
-import pipelines
+import core.catalog
 from core.state_machine import WorkflowManager
 manager = WorkflowManager()
 view = manager.get_session_view('legacy_constraints')
 assert view['pipeline']['input_constraints']
 assert 'salt_profile' not in view['pipeline']
 manager.confirm_scenario('legacy_constraints', True)
-try:
-    manager.inspect_parameters('legacy_constraints')
-except ValueError:
-    print('LEGACY_CONSTRAINT_PRESERVED')
-else:
-    raise AssertionError('Legacy input constraints were lost')
+assert manager.inspect_parameters('legacy_constraints')['is_complete']
+print('LEGACY_CONSTRAINT_PRESERVED')
 """
     result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
                             env=os.environ.copy(), capture_output=True, text=True, timeout=30)
@@ -160,19 +151,7 @@ else:
     assert "LEGACY_CONSTRAINT_PRESERVED" in result.stdout
 
 
-def test_restricted_python_template_accepts_constraint_declarations():
+def test_extension_rejects_python_constraint_templates():
     from core.extensions import parse_definition
-    source = '''
-from core.pipeline import Pipeline, PipelineStep, pipeline_registry
-from core.types import Pin, InputConstraint
-pipeline = Pipeline(id="template", name="模板", category="test", description="", notes="",
-    required_inputs=[Pin("upper", "/", "上限"), Pin("lower", "/", "下限")],
-    steps=[PipelineStep(step_id="sum", formula_id="test.sum", input_map={"a": "upper", "b": "lower"}, output_map={"result": "answer"})],
-    input_constraints=[InputConstraint(variable="upper", greater_than="lower")])
-pipeline_registry.register(pipeline)
-'''
-    pipeline = parse_definition(source, "pipeline")
-    _, registry = sum_pipeline()
     with pytest.raises(ValueError):
-        pipeline.inspect_inputs({"upper": 1, "lower": 2}, registry)
-    assert pipeline.execute({"upper": 3, "lower": 2}, registry).final_outputs == {"answer": 5}
+        parse_definition('from core.types import InputConstraint', "pipeline")

@@ -98,7 +98,7 @@ def test_edit_requires_reconfirmation_and_recalculates(client):
 def test_failed_parameter_edit_is_atomic(client):
     base = prepare(client)
     before = client.get(base).json()
-    response = client.post(base + "/parameters", json={"parameters": {"steam_mass_flow": -1}})
+    response = client.post(base + "/parameters", json={"parameters": {"steam_mass_flow": True}})
     assert response.status_code == 400
     after = client.get(base).json()
     assert after["provided_parameters"] == before["provided_parameters"]
@@ -209,16 +209,16 @@ def test_pin_rejects_nonfinite_or_boolean(value):
         Pin("x", "MW", "功率", min_value=0).validate(value)
 
 
-def test_inverse_respects_pin_ranges():
-    with pytest.raises(ValueError):
-        registry.get("thermal.theoretical_power").solve({"theoretical_power": -10, "enthalpy_diff": 2712}, "steam_mass_flow")
+def test_inverse_accepts_values_outside_display_ranges():
+    assert registry.get("thermal.theoretical_power").solve(
+        {"theoretical_power": -10, "enthalpy_diff": 2712}, "steam_mass_flow") == pytest.approx(-13.274336283185841)
 
 
 @pytest.mark.parametrize("parameters", [{"salt_hot_temperature": 190, "salt_cold_temperature": 190}, {"salt_hot_temperature": 600}])
-def test_salt_boundaries_fail_during_inspection(client, parameters):
+def test_salt_display_boundaries_do_not_block_inspection(client, parameters):
     client.get("/api/session/salt")
     client.post("/api/session/salt/confirm_scenario", json={"confirmed": True})
-    assert client.post("/api/session/salt/parameters", json={"parameters": parameters}).status_code == 400
+    assert client.post("/api/session/salt/parameters", json={"parameters": parameters}).status_code == 200
 
 
 def test_new_proposal_clears_old_result(client):
@@ -243,18 +243,20 @@ def test_session_restores_draft_but_not_authorization(client):
 
 @pytest.mark.parametrize("parameters", [{"steam_pressure": 10, "steam_temperature": 200},
                                       {"feedwater_pressure": 0.05, "feedwater_temperature": 150}])
-def test_wrong_phase_rejected_before_confirmation(client, parameters):
+def test_phase_boundary_does_not_block_parameter_confirmation(client, parameters):
     base = prepare(client)
     response = client.post(base + "/parameters", json={"parameters": parameters})
-    assert response.status_code == 400
-    assert "相" in response.json()["error"]
+    assert response.status_code == 200
+    assert client.post(base + "/confirm_parameters", json={"confirmed": True}).status_code == 200
+    assert client.post(base + "/calculate").status_code == 200
 
 
 def test_saturated_steam_uses_dry_vapor_enthalpy():
-    from formulas.thermal.water_steam_properties import _xsteam
-    temperature = _xsteam.tsat_p(15)
+    from iapws import IAPWS95
+    saturation = IAPWS95(P=1.5, x=1)
+    temperature = saturation.T - 273.15
     result = registry.get("thermal.steam_enthalpy").execute({"steam_pressure": 1.5, "steam_temperature": temperature})
-    assert result["steam_enthalpy"] == pytest.approx(_xsteam.hV_p(15))
+    assert result["steam_enthalpy"] == pytest.approx(saturation.h)
 
 
 def test_atomic_solver_cannot_bypass_confirmed_workload(client):
@@ -311,7 +313,8 @@ def test_new_formula_pipeline_and_session_survive_process_restart(client):
     pipeline_registry.save_pipeline(Pipeline.from_dict(data))
     workflow_manager.propose_new_scenario("persist", data, "恢复测试", {"x": 5})
     script = """
-import json, formulas, pipelines
+import json
+import core.catalog
 from core.state_machine import WorkflowManager
 from core.pipeline import pipeline_registry
 from core.formula import default_formula_registry
@@ -338,33 +341,23 @@ def test_dynamic_registration_rejects_code_paths_and_unknown_match(monkeypatch):
     from server import mcp_server
     monkeypatch.setattr(mcp_server, "editor_link", lambda *args: "http://127.0.0.1/editor")
     monkeypatch.setattr(mcp_server.webbrowser, "open", lambda *args: None)
-    source = json.dumps(operator_payload("custom.registered"))
-    assert json.loads(mcp_server.register_new_formula(source, "thermal", "../escape.py", True)).get("error")
-    assert json.loads(mcp_server.register_new_formula("import os\nos.system('echo BAD')", "thermal", "safe.py", True)).get("error")
-    assert json.loads(mcp_server.register_new_formula(source, "thermal", "safe.json", True))["status"] == "SUCCESS"
+    source = {**operator_payload("custom.registered"), "category": "thermal", "formula_type": "algebraic"}
+    source["expression"] = source.pop("equation")
+    assert json.loads(mcp_server.register_new_formula(source, "../escape.json", True)).get("error")
+    assert json.loads(mcp_server.register_new_formula("import os\nos.system('echo BAD')", "safe.py", True)).get("error")
+    assert json.loads(mcp_server.register_new_formula(source, "输入翻倍_safe.json", True))["status"] == "SUCCESS"
     assert registry.get("custom.registered").execute({"x": 3}) == {"y": 6}
     result = json.loads(mcp_server.match_or_propose_scenario("unknown", "陌生场景"))
     assert result["status"] == "SCENARIO_SELECTION_REQUIRED"
     assert workflow_manager.get_or_create_session("unknown").pipeline_data is None
 
 
-def test_existing_declarative_template_registers_without_executing_code():
+def test_python_template_is_rejected_without_registering_formula():
     from core.extensions import parse_definition
-    source = '''
-from core.types import Pin, FormulaMetadata, FormulaType
-from core.formula import AlgebraicFormula, default_formula_registry
-metadata = FormulaMetadata(id="custom.template", name="模板功率", category="custom",
-    description="测试声明式模板", notes="", formula_type=FormulaType.ALGEBRAIC,
-    inputs=[Pin(name="x", unit="MW", description="输入")],
-    outputs=[Pin(name="y", unit="MW", description="输出")])
-formula = AlgebraicFormula(metadata, "y = x * 2")
-default_formula_registry.register(formula)
-'''
-    data = parse_definition(source, "formula")
+    with pytest.raises(ValueError):
+        parse_definition('from core.types import Pin', "formula")
     with pytest.raises(KeyError):
         registry.get("custom.template")
-    saved = registry.save_operator(data)
-    assert saved.execute({"x": 4}) == {"y": 8}
 
 
 def test_editor_behavior_regressions():

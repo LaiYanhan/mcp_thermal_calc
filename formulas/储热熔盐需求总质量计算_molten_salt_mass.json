@@ -1,0 +1,68 @@
+{
+  "id": "thermal.molten_salt_mass",
+  "name": "储热熔盐需求总质量计算",
+  "category": "thermal",
+  "description": "根据储罐储热总容量、熔盐高低温工作温差、介质平均定压比热容及工程安全冗余系数，计算所需熔盐净重（t）。",
+  "notes": "工程设计中通常预留 10%（*1.10）作为罐底未排净死盐量及热工波动冗余。",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "thermal_storage_capacity",
+      "unit": "MWh",
+      "description": "储热罐额定储热容量",
+      "min_value": 0.1,
+      "max_value": 60000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "salt_specific_heat",
+      "unit": "kJ/(kg·℃)",
+      "description": "熔盐平均定压比热容",
+      "min_value": 1.0,
+      "max_value": 3.0,
+      "default_value": 1.42,
+      "kind": "input"
+    },
+    {
+      "name": "salt_hot_temperature",
+      "unit": "℃",
+      "description": "高温熔盐工作温度",
+      "min_value": 180.0,
+      "max_value": 600.0,
+      "default_value": 390.0,
+      "kind": "input"
+    },
+    {
+      "name": "salt_cold_temperature",
+      "unit": "℃",
+      "description": "低温熔盐工作温度",
+      "min_value": 140.0,
+      "max_value": 450.0,
+      "default_value": 190.0,
+      "kind": "input"
+    },
+    {
+      "name": "salt_safety_margin",
+      "unit": "/",
+      "description": "工程设计冗余系数",
+      "min_value": 1.0,
+      "max_value": 1.5,
+      "default_value": 1.1,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "salt_mass",
+      "unit": "t",
+      "description": "熔盐装填总质量",
+      "min_value": 1.0,
+      "max_value": 1000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "salt_mass = thermal_storage_capacity * 3600 / (salt_specific_heat * (salt_hot_temperature - salt_cold_temperature)) * salt_safety_margin",
+  "is_bidirectional": true
+}

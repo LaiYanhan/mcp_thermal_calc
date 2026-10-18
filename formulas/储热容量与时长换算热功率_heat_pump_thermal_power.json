@@ -1,0 +1,41 @@
+{
+  "id": "thermal.heat_pump_thermal_power",
+  "name": "储热容量与时长换算热功率",
+  "category": "thermal",
+  "description": "储热容量与时长换算热功率，适用于具有相同量纲和关系的计算节点。",
+  "notes": "供汽时长与谷电时长已解耦，基于总储热能量除以谷电时长折算。",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "thermal_storage_capacity",
+      "unit": "MWh",
+      "description": "储热罐额定储热容量",
+      "min_value": 0.1,
+      "max_value": 60000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "valley_electricity_hours",
+      "unit": "h",
+      "description": "每日低谷电蓄热时长",
+      "min_value": 0.5,
+      "max_value": 24.0,
+      "default_value": 8.0,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "heat_pump_thermal_power",
+      "unit": "MWt",
+      "description": "热泵输出热功率",
+      "min_value": 0.1,
+      "max_value": 2000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "heat_pump_thermal_power = thermal_storage_capacity / valley_electricity_hours",
+  "is_bidirectional": true
+}

@@ -7,7 +7,7 @@
 2. **分阶段状态机与人工确认强守卫**：在 MCP 工具层内置状态机，必须经历“场景确认 $\rightarrow$ 参数缺项补全 $\rightarrow$ 参数审核确认 $\rightarrow$ 授权计算”，未经授权调用计算将被直接物理拦截；
 3. **公式解耦与符号双向推导（SymPy）**：代数公式基于 SymPy 符号方程构建，天然支持正向与逆向多变量推导（如 $a,b \Rightarrow c$ 或由目标 $c$ 逆推所需入参 $a$）；水蒸气状态方程单向查表封装；
 4. **统一原子公式化与管道装配（无过度抽象）**：设备选型与阶梯造价规则均抽象为纯净原子公式，在 `pipelines/` 声明式 DAG 管道中与热工物理公式串联一体；
-5. **高度可扩展性**：支持通过声明式 JSON 或受限标准模板注册新公式与新计算管道。定义经校验后以数据形式保存，立即进入注册表，重启时重新加载。
+5. **高度可扩展性**：使用严格 JSON 注册新公式与自包含计算管道。启动时自动扫描资产目录；MCP 注册校验后写入 JSON 文件并立即生效。
 
 ---
 
@@ -25,14 +25,14 @@
 │   ├── types.py              # Pin/引脚、FormulaMetadata、PipelineStep 等类型定义
 │   ├── formula.py            # AlgebraicFormula (SymPy双向)、EmpiricalFormula 与注册表
 │   ├── pipeline.py           # Pipeline DAG 拓扑执行引擎与校验
+│   ├── definitions.py        # 严格 Pydantic JSON 契约
+│   ├── handlers.py           # IAPWS-95 与设备选型处理函数白名单
+│   ├── catalog.py            # 先加载公式 JSON，再加载管道 JSON
 │   └── state_machine.py      # 分阶段状态机与人工确认守卫控制器
-├── formulas/                 # 原子公式库 (按业务解耦)
-│   ├── thermal/              # 水蒸气物性查表、焓差、SGS功率、储热量、电加热器功率、熔盐量
-│   ├── operation/            # 用电量、供汽量、购电成本、售汽收入、日度/年化毛收益差额
-│   └── sizing/               # SGS规格整定、电加热器整定、主变压器查表选型、熔盐采购量整定
-├── pipelines/                # 场景计算管道库 (声明式 DAG)
-│   ├── electric_heater_salt_steam.py   # 基准场景：电加热器熔盐储热供汽流水线
-│   └── industrial_heat_pump_steam.py  # 工业热泵储能供汽（给定 COP 的简化模型）
+├── formulas/                 # <中文计算含义>_<英文标识>.json；通用原子公式
+├── pipelines/                # 自包含的 JSON DAG，内联输入、常量和默认值
+│   ├── scenario_electric_heater_salt_steam.json
+│   └── scenario_industrial_heat_pump_steam.json
 ├── server/                   # MCP 服务端接口层
 │   └── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 11 个工程与工作流工具
 ├── skills/                   # 智能体交互技能说明书
@@ -91,13 +91,13 @@ Skill 在后续轮次可被发现；若 MCP 工具列表尚未刷新，重启 Co
 默认由 AI 通过 `open_pipeline_editor(session_id=..., stage=2)` 切换到阶段 02；已打开的同会话页面会同步阶段命令与计算结果。前端阶段切换及确认计算按钮仅在独立调试时启用：
 
 ```powershell
-.\.venv\Scripts\python.exe run_web.py --debug --pipeline pipelines/electric_heater_salt_steam.py
+.\.venv\Scripts\python.exe run_web.py --debug --pipeline pipelines/scenario_electric_heater_salt_steam.json
 ```
 
 `--stage 2` 必须配合 `--debug`。参数微调只保存参数并使旧结果和授权失效；正常模式由 AI 重新核对参数、获得人工确认后执行计算，调试模式需显式点击确认计算。输入或保存参数均不会自动重算。
 从 MCP 打开编辑器时，由 MCP 进程启动同一份 Web 服务；此时不用另开 `run_web.py`。编辑器仅监听本机，浏览器写入必须同源。
 
-独立调试可用 `run_web.py --list` 查看流水线，或用 `run_web.py --pipeline <ID或模块路径> --reset` 从代码定义重新打开。场景选择与重置仅用于页面首次加载；成功后会移除地址中的 `reset`，后续保存、确认、计算和刷新继续使用当前会话。
+独立调试可用 `run_web.py --list` 查看流水线，或用 `run_web.py --pipeline <ID或JSON路径> --reset` 从 JSON 定义重新打开。场景选择与重置仅用于页面首次加载；成功后会移除地址中的 `reset`，后续保存、确认、计算和刷新继续使用当前会话。
 
 自动排版根据当前流水线的真实依赖向右展开、分支向下排列，不依赖蒸汽场景的参数或步骤名称。输入与常量保持胶囊样式，拖拽位置仍会保存；“恢复默认排版”重新计算当前拓扑的位置。
 
@@ -121,10 +121,12 @@ AI 可先调用 `list_formulas` 查看 `variables` 中的中文含义、单位�
 
 全部步骤的公式输出自动成为结构化成果，包括中间结果。`results` 提供步骤、公式、参数含义、单位和值，`final_outputs` 提供计算输出的变量值索引，输入和常量另存于 `initial_inputs`。不再需要成果分组或输出清单；旧 JSON 中的成果分组字段读取时忽略，旧的设备/经营摘要字段不再返回。
 
-场景专用参数校验在 Python 流水线的 `input_constraints` 中声明。例如 `InputConstraint(variable="upper", greater_than="lower", message="上限必须大于下限")`，或使用 `min_value`、`max_value` 声明范围（从 `core.types` 导入 `InputConstraint`）。约束引用流水线输入名称；修改名称时同步修改约束。核心只执行显式约束，不根据参数名称推断业务规则。熔盐场景的规则位于 `pipelines/validation.py`，旧工程的 `salt_profile` 字段由该业务模块注册的转换方法处理；约束随会话保存与恢复，AI 场景目录也会返回约束。
+`min_value` / `max_value` 仅用于界面参考和滑块提示，不阻断有限数值计算。旧 `input_constraints` 仍可保存和展示，其范围与大小关系不再拦截；变量引用和单位契约仍须有效。熔盐温区和水汽液/汽相的应用层拦截已移除。除零、非有限结果和 IAPWS-95 自身无法求解的状态仍会报告计算错误，不进行夹值、替代模型或结果填充。
 
-会话、布局、自定义管道与全局算子修改默认保存在 `.data/`，可通过 `THERMAL_CALC_DATA_DIR` 指定其他目录。重启恢复工程草稿与参数，授权和旧计算结果不跨进程恢复。内置 Python 公式仍位于 `formulas/`，动态注册不会执行或覆盖 Python 源文件。
+会话草稿、参数与画布布局保存在 `.data/`（`THERMAL_CALC_DATA_DIR` 可重定向）。公式与注册管道直接保存在 `formulas/`、`pipelines/`，由 `core/catalog.py` 在服务启动时递归加载，路径不依赖工作目录；`THERMAL_CALC_ASSET_DIR` 可指定独立的资产根目录。前端算子原地修改同样更新公式 JSON。重启恢复草稿，授权和旧结果不跨进程恢复。本次不迁移历史 `.data/operators.json` 或 `.data/pipelines/` 资产；需要的历史定义应另行审核转换为严格 JSON。
+
+MCP `register_new_formula(formula_definition=JSON对象, filename="中文计算含义_english_id.json", human_approved=True)` 和 `register_new_pipeline(pipeline_definition=JSON对象, pipeline_filename="scenario_id.json", human_approved=True)` 接受工具 schema 定义的结构化对象；`human_approved=True` 需要工程师明确审核，注册成功不替代会话确认。`list_formulas` 和 `list_scenarios` 的 `definition` 字段提供完整定义。代数定义包含 `formula_type="algebraic"`、`expression`、`inputs`、`outputs`；经验定义包含 `formula_type="empirical"` 及白名单 `handler`。管道在 `required_inputs` 中内联默认值和 `kind`，在 `steps` 中连接已有公式。文件新增后重启可自动发现；MCP 注册即时生效；不执行 Python 模板。
 
 新增代数算子必须提供 `id`、`name`、`equation`、`inputs` 和 `outputs`；每个引脚需明确 `name`、`description`、`unit`。表达式支持变量、有限数值和 `+ - * / **`，必须具有唯一正向输出；禁止导入、函数调用和属性访问。已有物性/查表算子的计算实现不能通过代数文本编辑。
 
-压力输入统一采用 **MPa 绝压**；表压须由调用者依据现场大气压换算。带单位输入可使用 `{"value": 1.5, "unit": "MPa"}`，不同倍率单位需显式换算。基准 HITEC 场景校验盐种温区与正温差；水蒸气查表校验液/汽相边界，不支持用温度、压力猜测湿蒸汽干度。
+压力输入统一采用 **MPa 绝压**；表压须由调用者依据现场大气压换算。带单位输入可使用 `{"value": 1.5, "unit": "MPa"}`，不同倍率单位需显式换算。范围和相态信息供工程师判断；饱和边界沿用干饱和蒸汽比焓，不通过温度、压力猜测湿蒸汽干度。

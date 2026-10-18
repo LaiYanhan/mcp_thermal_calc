@@ -1,0 +1,41 @@
+{
+  "id": "operation.daily_electricity_cost",
+  "name": "每日购电成本计算",
+  "category": "operation",
+  "description": "根据日耗电量（MWh转化为度数*1000）与低谷电价，计算每日电费支出（元/d）。",
+  "notes": "",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "daily_power_mwh",
+      "unit": "MWh",
+      "description": "每日消纳谷电电量",
+      "min_value": 0.1,
+      "max_value": 48000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "valley_electricity_price",
+      "unit": "元/kWh",
+      "description": "低谷电价",
+      "min_value": -0.1,
+      "max_value": 3.0,
+      "default_value": 0.3,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "daily_electricity_cost",
+      "unit": "元",
+      "description": "每日低谷电费支出",
+      "min_value": -100000.0,
+      "max_value": 10000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "daily_electricity_cost = daily_power_mwh * 1000 * valley_electricity_price",
+  "is_bidirectional": true
+}

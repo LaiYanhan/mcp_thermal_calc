@@ -4,7 +4,7 @@
 本项目正从原先的“通过修改 Python 代码和模板支持扩展”重构为“通过纯 JSON 配置原子公式、输入输出变量及计算管道（DAG）”。
 所有方案已经过多轮技术推演（Grilling）与领域建模（Domain Modeling）严格对齐，重构规范已在 `.scratch/` 中就绪。
 
-后续开发将在 Codex 中依据规范与工单逐项完成，完成后合并回 `main` 分支。
+6 张工单已于 2026-10-18 在 `refactor/json-pipeline-and-formulas` 分支实现；保留在当前分支供审核，尚未合并 `main`。完整回归 103 项通过；两个基准场景的全部默认输出与迁移前严格相等。
 
 ---
 
@@ -36,7 +36,7 @@
 - **重构技术规范 (Spec)**:
   `.scratch/json-pipeline-formula-refactor/spec.md`
 - **执行工单列表 (Tickets)**:
-  - `.scratch/json-pipeline-formula-refactor/issues/01-core-handler-registry-and-numerical-review-removal.md` (**当前活跃前沿**)
+  - `.scratch/json-pipeline-formula-refactor/issues/01-core-handler-registry-and-numerical-review-removal.md` (**已完成**)
   - `.scratch/json-pipeline-formula-refactor/issues/02-json-formula-engine-and-formulas-migration.md`
   - `.scratch/json-pipeline-formula-refactor/issues/03-json-pipeline-engine-and-baseline-pipelines-cutover.md`
   - `.scratch/json-pipeline-formula-refactor/issues/04-mcp-json-schema-and-state-machine-preservation.md`
@@ -54,3 +54,11 @@
 - `tdd`: 在根据工单编写代码时，优先采用测试驱动方式，确保每个垂直切片完成后与现存 Excel 基准数据实现 100% 数值对齐，并验证极端数值不报错。
 - `codebase-design`: 在构建 `core/handlers.py` 以及重构 `FormulaRegistry` / `PipelineRegistry` 的加载机制时，保持深模块与极简接缝。
 - `code-review`: 在每个工单完成或准备将分支合并回 `main` 之前，比对 `.scratch/.../spec.md` 审核代码一致性。
+
+## 5. 本轮交接结果
+
+- 25 个原子公式及 2 个自包含场景已迁入 JSON；启动入口为 `core/catalog.py`。
+- 扩展注册工具使用严格 JSON schema，文件直接写入资产目录；Python 模板与场景回退加载均已移除。
+- 前端 `ui_prototype.html`、`ui_editor.js` 与 `core/state_machine.py` 保持原样。
+- 参见 ADR-0014、README 和更新后的项目技能说明；历史 `.data/` 资产未转换。
+- 范围提示不拦截有限输入；除零、非有限结果及物性库不可求解状态仍返回真实错误。

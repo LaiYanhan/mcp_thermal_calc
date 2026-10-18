@@ -1,0 +1,41 @@
+{
+  "id": "operation.daily_steam_production",
+  "name": "日外供蒸汽总量计算",
+  "category": "operation",
+  "description": "根据额定蒸汽流量与每日连续供汽时长，计算每日累计输出的蒸汽吨数（t/d）。",
+  "notes": "",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "steam_mass_flow",
+      "unit": "t/h",
+      "description": "蒸汽瞬时流量",
+      "min_value": 0.1,
+      "max_value": 2000.0,
+      "default_value": 100.0,
+      "kind": "input"
+    },
+    {
+      "name": "steam_supply_hours",
+      "unit": "h",
+      "description": "每日供汽时长",
+      "min_value": 0.5,
+      "max_value": 24.0,
+      "default_value": 8.0,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "daily_steam_tons",
+      "unit": "t",
+      "description": "每日供汽总量",
+      "min_value": 0.1,
+      "max_value": 48000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "daily_steam_tons = steam_mass_flow * steam_supply_hours",
+  "is_bidirectional": true
+}

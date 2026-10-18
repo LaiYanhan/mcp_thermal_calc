@@ -17,7 +17,11 @@ def test_stdio_workflow(tmp_path):
     async def exercise():
         # The test supplies fixture confirmations; never open a user's browser.
         launcher = (
-            "import runpy,sys,webbrowser; "
+            "import runpy,sys,webbrowser,socket; from pathlib import Path; "
+            "sys.path.insert(0,str(Path(sys.argv[1]).parents[1])); "
+            "import server.web_app as web; "
+            "sock=socket.socket(); sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]; sock.close(); "
+            "start=web.ensure_web_server_running; web.ensure_web_server_running=lambda: start(port=port); "
             "webbrowser.open=lambda *a,**k: False; "
             "runpy.run_path(sys.argv[1],run_name='__main__')"
         )
@@ -39,6 +43,9 @@ def test_stdio_workflow(tmp_path):
                         "confirm_parameters", "execute_calculation", "solve_atomic_formula",
                         "register_new_formula", "register_new_pipeline",
                         "open_pipeline_editor"} <= names
+                formula_schema = next(tool.input_schema for tool in catalog.tools if tool.name == "register_new_formula")
+                assert "formula_definition" in formula_schema["properties"]
+                assert "formula_code" not in formula_schema["properties"]
 
                 async def call(name, **arguments):
                     result = await client.call_tool(name, arguments)
@@ -50,6 +57,19 @@ def test_stdio_workflow(tmp_path):
                     scenario["id"] for scenario in scenarios
                 }
                 assert await call("list_formulas")
+                registered = await call("register_new_formula", formula_definition={
+                    "id": "test.stdio", "name": "恒等映射", "category": "thermal", "formula_type": "algebraic",
+                    "expression": "y = x", "inputs": [{"name": "x", "unit": "MW", "description": "输入"}],
+                    "outputs": [{"name": "y", "unit": "MW", "description": "输出"}],
+                }, filename="恒等映射_stdio.json", human_approved=True)
+                assert registered["status"] == "SUCCESS"
+                registered_pipeline = await call("register_new_pipeline", pipeline_definition={
+                    "id": "test_stdio", "name": "结构化 JSON 场景", "required_inputs": [
+                        {"name": "source", "unit": "MW", "description": "输入", "default_value": 3}],
+                    "steps": [{"step_id": "identity", "formula_id": "test.stdio",
+                               "input_map": {"x": "source"}, "output_map": {"y": "answer"}}],
+                }, pipeline_filename="test_stdio.json", human_approved=True)
+                assert registered_pipeline["status"] == "SUCCESS"
                 session = "stdio-regression"
                 blocked = await call("execute_calculation", session_id=session)
                 assert blocked["security_block"] is True
@@ -63,7 +83,7 @@ def test_stdio_workflow(tmp_path):
                 inspected = await call("inspect_and_validate_parameters", session_id=session)
                 assert inspected["is_complete"] is True
                 switched = await call("open_pipeline_editor", session_id=session, stage=2)
-                assert switched["status"] == "SUCCESS"
+                assert switched["status"] == "SUCCESS", switched
                 assert switched["stage"] == 2
                 assert (await call("execute_calculation", session_id=session))["security_block"] is True
                 assert (await call("confirm_parameters", session_id=session, confirmed=True))["status"] == "PARAMETERS_CONFIRMED"

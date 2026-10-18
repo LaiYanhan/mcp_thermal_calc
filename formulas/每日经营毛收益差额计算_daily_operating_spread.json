@@ -1,0 +1,41 @@
+{
+  "id": "operation.daily_operating_spread",
+  "name": "每日经营毛收益差额计算",
+  "category": "operation",
+  "description": "每日售汽收入与低谷购电成本的直接差额（毛利空间）（元/d）。",
+  "notes": "",
+  "formula_type": "algebraic",
+  "inputs": [
+    {
+      "name": "daily_steam_revenue",
+      "unit": "元",
+      "description": "每日售汽营业收入",
+      "min_value": 0.0,
+      "max_value": 50000000.0,
+      "default_value": null,
+      "kind": "input"
+    },
+    {
+      "name": "daily_electricity_cost",
+      "unit": "元",
+      "description": "每日低谷电费支出",
+      "min_value": -100000.0,
+      "max_value": 10000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "daily_operating_spread",
+      "unit": "元",
+      "description": "每日经营毛收益差额",
+      "min_value": -10000000.0,
+      "max_value": 50000000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": "daily_operating_spread = daily_steam_revenue - daily_electricity_cost",
+  "is_bidirectional": true
+}

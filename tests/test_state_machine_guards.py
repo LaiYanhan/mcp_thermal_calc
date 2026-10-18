@@ -3,8 +3,7 @@ Tests for state machine workflow and human-in-the-loop interruption guards.
 """
 
 import pytest
-import formulas
-import pipelines
+import core.catalog
 from core.state_machine import WorkflowManager, WorkflowState, StateTransitionError
 
 

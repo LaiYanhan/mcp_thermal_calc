@@ -13,8 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
-import formulas
-import pipelines
+import core.catalog
 from core.formula import default_formula_registry
 from core.pipeline import PipelineValidationError, pipeline_registry
 from core.state_machine import workflow_manager, StateTransitionError

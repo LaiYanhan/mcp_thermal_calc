@@ -3,7 +3,7 @@ Unit tests for atomic formulas and bidirectional SymPy solving.
 """
 
 import pytest
-import formulas
+import core.catalog
 from core.formula import default_formula_registry
 
 

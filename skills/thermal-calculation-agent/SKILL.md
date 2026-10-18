@@ -5,7 +5,7 @@ description: 熔盐储能与工业热工计算智能体技能规范。严格执�
 
 # 熔盐储能与热工测算智能体指南
 
-本技能指导 Agent 作为热工工程测算顾问，严格执行下述状态机与人工确认流程，调用项目现有的 Python 公式、Pipeline 流水线和 MCP 工具完成测算。
+本技能指导 Agent 作为热工工程测算顾问，严格执行下述状态机与人工确认流程，调用项目 JSON 原子公式、计算管道和 MCP 工具完成测算。
 
 ##  绝对工程红线 (Inviolable Rules)
 1. **AI 严禁私自进行任何数值计算、心算或估算**：所有物理量（焓值、功率、热量、盐量）、设备规格、电费、收入及差额，必须 100% 由 MCP 工具返回，模型仅负责解释与结构化排版。
@@ -50,8 +50,8 @@ description: 熔盐储能与工业热工计算智能体技能规范。严格执�
 调用工具：`match_or_propose_scenario`
 - 提取用户需求中的供汽工况（如温度、压力、产汽量、时长、电价等）。
 - 若工况属于夜间低谷电蓄热、白天供蒸汽的典型工况，匹配系统内置基准管道：`scenario_electric_heater_salt_steam`。
-- 先调用 `list_scenarios` 查看实际已注册的 Python 流水线目录，由 Agent 对照需求匹配，再将选定 ID 传给 `match_or_propose_scenario` 的 `scenario_id`。该工具不会自行完成需求匹配；所有会话工具始终使用同一工程的 `session_id`。
-- **未匹配到合适场景时，必须新建场景或微调已有场景**，不得强行套用基准管道、跳过场景设计或由模型直接计算。按下文自扩展规范编写 Python `Pipeline`：已有场景仅局部不适用时，说明修改哪些参数、算子、求解方向和连接；现有拓扑不适用时组装新流水线。两种情况均需展示管道、获得人工审核，并重新进入场景确认流程。
+- 先调用 `list_scenarios` 查看实际已注册的 JSON 计算管道目录，由 Agent 对照需求匹配，再将选定 ID 传给 `match_or_propose_scenario` 的 `scenario_id`。该工具不会自行完成需求匹配；所有会话工具始终使用同一工程的 `session_id`。
+- **未匹配到合适场景时，必须新建场景或微调已有场景**，不得强行套用基准管道、跳过场景设计或由模型直接计算。按下文自扩展规范编写自包含 JSON 计算管道：已有场景仅局部不适用时，说明修改哪些参数、算子、求解方向和连接；现有拓扑不适用时组装新流水线。两种情况均需展示管道、获得人工审核，并重新进入场景确认流程。
 - **Agent 行为规范**：调用该工具后，工具状态切换为 `SCENARIO_PROPOSED`，系统会自动在后台启动轻量可视化服务并在浏览器中呼出编辑器。Agent **必须停下来**，向用户输出：
   > “已为您匹配到计算场景：【电加热器熔盐储热供汽计算场景】。\n可视化编辑器已在浏览器打开: [编辑器链接]\n您可在图上按住鼠标空白拖动画布、自由拖拽移动卡片、点击算子进行前插/后插修改。请确认是否选用该场景并授权进入参数核对？”
 
@@ -62,7 +62,7 @@ description: 熔盐储能与工业热工计算智能体技能规范。严格执�
 
 ### 第 3 步：参数检查与缺项询问 (Parameter Inspection)
 调用工具：`inspect_and_validate_parameters`
-- 传入用户已提供的参数字典。工具会自动检查缺项并自动注入 `constants` 中的工程基准默认值。
+- 传入用户已提供的参数字典。工具检查缺项并补全当前管道 JSON 内联的默认值，默认值仍需人工核对。
 - **分支 A（存在必填缺失项）**：
   若返回 `is_complete=False`，Agent 必须整理疑问清单，向用户解释缺项的物理含义并请求输入：
   > “系统检测到以下必要参数缺失，请您提供：
@@ -107,101 +107,32 @@ description: 熔盐储能与工业热工计算智能体技能规范。严格执�
 
 当遇到《研究资料/使用场景/》中的新增场景（如“火电灵活性改造”、“热泵+中温熔盐”、“网侧独立储能”等）：
 
-**沿用项目现有的 Python 公式与 Python Pipeline 写法。** 先阅读最相近的 `formulas/`、`pipelines/` 模块和对应包的 `__init__.py`，保留现有的元数据、引脚、注册表和状态机设计。新增或微调的场景仍须按前述六步流程人工确认，不因注册成功而获得计算授权。
+先用 `list_formulas`、`list_scenarios` 阅读完整 `definition`，复用最相近的已注册资产。公式和管道统一使用严格 JSON，定义的字段与类型以注册工具 schema 为准。新场景或微调仍须执行前述人工确认流程。
 
 ### 1. 组合现有公式组装新管道
-若现有原子公式库（查看 `list_formulas`）已覆盖所需节点，Agent 编写新的 `Pipeline` 脚本，声明 DAG 拓扑：
-1. 向人类展示提议的管道结构与节点流向；
-2. 获得人类审查同意后，将 Python 脚本保存到 `pipelines/<场景模块名>.py`，文件末尾调用 `pipeline_registry.register(...)`；在 `pipelines/__init__.py` 中增加对应模块的 `import pipelines.<场景模块名>`，使服务启动时加载并注册；
-3. 在独立进程验证导入、流水线校验与渲染，再重启 MCP 服务，用 `list_scenarios` 确认场景已加载，随后按场景 ID 调用 `match_or_propose_scenario`，等待人工确认。
 
-微调已有场景时，先向人类展示修改点。新增变体需使用独立的流水线 ID、模块名和实例名；若人类明确要求修改原场景，则修改原 Python 定义，重新加载服务后再次审核场景。参数默认值继续按现有场景从 `constants/default_parameters.py` 提取，新增参数可按现有 `Pin` 写法声明，不把缺失的工程假设当成已确认参数。
+向人类展示节点、变量来源、求解方向及工程假设。管道 JSON 在 `required_inputs` 中内联每个输入和工程常量的 `name`、`unit`、`description`、`default_value`，用 `kind="constant"` 标明常量；缺少工程依据的量保留为无默认值的必填项。在 `steps` 中声明 `step_id`、`formula_id`、`input_map` 和 `output_map`，来源必须是场景输入或其他步骤输出，单位须匹配。
 
-Python 流水线模板（以下节点引用下一节原有公式模板的 ID，实际使用时替换为已注册且适用的公式）：
+反算节点使用 `solve_target="待求变量"`，其余公式变量作为已知量映射到 `input_map`，待求量映射到 `output_map`；省略时使用默认方向。`list_formulas` 的 `solve_targets` 给出可选变量；物性和选型保持正向。
 
-```python
-from core.pipeline import Pipeline, PipelineStep, pipeline_registry
-from core.types import Pin
+新增变体采用独立 ID；微调原场景须先展示修改点并取得对应授权。审核后调用 `register_new_pipeline(pipeline_definition=JSON对象, pipeline_filename="scenario_id.json", human_approved=True)`，写入 `pipelines/` 并即时注册。也可将审核后的 JSON 文件放入该目录，重启服务自动发现。用 `list_scenarios` 核对，再提议场景并等待会话中的人工确认。
 
-CUSTOM_REQUIRED_INPUTS = [
-    Pin("var_a", "单位", "入参A详细说明", min_value=0.0, max_value=1000.0),
-    Pin("var_b", "单位", "入参B详细说明", min_value=0.0, max_value=100.0),
-]
+### 2. 新原子公式
 
-CUSTOM_STEPS = [
-    PipelineStep(
-        step_id="step_1_custom_formula",
-        formula_id="category.my_formula_name",
-        input_map={"var_a": "var_a", "var_b": "var_b"},
-        output_map={"var_c": "var_c"},
-        description="使用已审核的公式计算出参C",
-    ),
-]
+代数公式 JSON 声明 `id`、`name`、`category`、`formula_type="algebraic"`、`expression`、`inputs`、`outputs`。每个引脚明确变量、中文含义及单位；数学表达式使用英文变量标识及 `+ - * / **`，正向输出须有唯一解析解。公式表达通用物理、选型或经济关系，与具体业务场景解耦。
 
-custom_pipeline = Pipeline(
-    id="scenario_custom_scene",
-    name="自定义场景名称",
-    category="thermal",
-    description="说明本场景的工艺过程、目标和适用范围",
-    notes="说明工程假设、适用边界及待核对事项",
-    required_inputs=CUSTOM_REQUIRED_INPUTS,
-    steps=CUSTOM_STEPS,
-)
+物性和离散选型公式使用 `formula_type="empirical"`、已注册 `handler` 和对应引脚，`is_bidirectional=false`。handler 实现固定在核心白名单中；需要新物性算法时，应先作为代码开发任务实现和验证处理函数，再声明 JSON，不能通过 JSON 动态导入函数。
 
-pipeline_registry.register(custom_pipeline)
-```
+向工程师展示公式及工程含义，明确审核通过后调用 `register_new_formula(formula_definition=JSON对象, filename="中文计算含义_english_id.json", human_approved=True)`。工具校验后写入 `formulas/` 并注册；手工添加文件则需重启。公式先于引用它的管道加载；不需要修改包导入或注册代码。
 
-`input_map` 将公式已知引脚绑定到场景输入或其他步骤的产出，`output_map` 将待求引脚绑定到本步骤产出变量；引脚单位必须匹配。反算沿用 Python `PipelineStep(solve_target="待求变量", ...)`，已知引脚与输出映射随之调整。输入范围使用 `Pin` 声明，跨参数大小关系沿用 `InputConstraint`，熔盐专用约束参考现有场景的 `salt_temperature_constraints(...)`。含义和单位占位文字必须在实际工程中替换为经审核的定义。
+### 3. 数值与持久化边界
 
-在项目根目录用 `.venv/Scripts/python.exe run_web.py --pipeline pipelines/<场景模块名>.py` 打开该 Python 流水线进行渲染核对；也可使用已注册 ID。独立 Web 调试与 MCP 自带编辑器不应同时占用同一端口。文件导入和渲染不代替人工确认，也不授权执行计算。
+`min_value`、`max_value` 是显示参考范围，旧 `input_constraints` 只保留元数据，不阻断探索性输入。说明范围供工程师判断，不宣称工具已完成物理合理性审查。有限数值可进入计算；除零、非有限结果和底层 IAPWS-95 无法求解的状态仍会报错。报告实际工具错误，不替换或猜测结果。
 
-### 2. 编写新原子公式规范
-若新场景需要从未出现的新物理公式，Agent 需按照以下标准模板编写 Python 代码：
-```python
-from core.formula import AlgebraicFormula, default_formula_registry
-from core.types import FormulaMetadata, FormulaType, Pin
-
-# 公式：入参A * 入参B = 出参C
-my_new_formula = AlgebraicFormula(
-    metadata=FormulaMetadata(
-        id="category.my_formula_name",
-        name="中文公式名称",
-        category="thermal",
-        description="详细物理机制与工程释义",
-        notes="工程注意事项",
-        formula_type=FormulaType.ALGEBRAIC,
-        inputs=[
-            Pin("var_a", "单位", "入参A详细说明", min_value=0.0, max_value=1000.0),
-            Pin("var_b", "单位", "入参B详细说明", min_value=0.0, max_value=100.0),
-        ],
-        outputs=[
-            Pin("var_c", "单位", "出参C说明")
-        ],
-        expression="var_c = var_a * var_b",
-        is_bidirectional=True
-    ),
-    equation_str="var_c = var_a * var_b"
-)
-default_formula_registry.register(my_new_formula)
-```
-向人类呈现该代码，人类确认数学正确与安全后，保存至 `formulas/<业务分类>/<公式模块名>.py`；保留末尾的 `default_formula_registry.register(my_new_formula)`。在 `formulas/__init__.py` 中增加对应导入，例如 `import formulas.thermal.<公式模块名>`，使服务启动时执行模块并注册公式。公式应先于引用它的流水线加载；现有 `pipelines/__init__.py` 已先导入 `formulas`。
-
-若公式属于物性查表或离散选型，参照项目现有 `EmpiricalFormula` 的 Python 实现、校验函数和注册方式，不将其改写成不适用的代数关系。新增常量、设备规格或默认参数时，仍维护在现有 `constants/` 模块中。
-
-### 3. MCP 注册工具与项目源码注册的区别
-
-上述 Python 源文件、模块导入和注册表调用，是项目中新增公式、流水线的源码路径。服务已启动后修改文件，不会自动热加载；完成验证后重启，并分别用 `list_formulas`、`list_scenarios` 核对。
-
-当前 MCP 也支持将上述受限 Python 模板作为字符串传给注册工具：
-- `register_new_formula(formula_code=完整Python模板字符串, sub_category="thermal", filename="my_formula.py", human_approved=True)`；
-- `register_new_pipeline(pipeline_code=完整Python模板字符串, pipeline_filename="custom_scene.py", human_approved=True)`。
-
-只有获得人类对该公式或流水线的明确审核同意，才可传 `human_approved=True`。模板解析器允许白名单导入、赋值、`Pin`、`FormulaMetadata`、`AlgebraicFormula`、`PipelineStep`、`Pipeline`、`InputConstraint` 构造及一次指定注册表的注册声明；不执行任意 Python 代码，不能用该接口提交函数定义、循环或读取常量模块的辅助函数。带 `_get_pin` 等辅助函数的完整项目模块应走源码路径。
-
-**当前工具不会把模板写入 `formulas/` 或 `pipelines/` 的 `.py` 源文件**：它解析 Python 模板后进行校验、持久化到服务数据目录并即时注册，重启时恢复。`filename` 和 `pipeline_filename` 只是被校验的参数，不是源码输出路径。不要把工具返回 `SUCCESS` 当作源码已生成。为使新增能力属于项目 Python 源码，应使用前述源码路径；同一流水线 ID 不要同时经源码与工具重复注册。
+默认值在管道内联，运行时不从 Python 常量模块补查。注册资产直接保存为项目 JSON；会话草稿和布局另存于数据目录。历史 `.data/` 资产本次不自动迁移。注册不会授予计算权限，重启也不恢复旧授权。
 
 ### 4. AI 阶段控制与前端调试
 
-正常模式由 Agent 调用 `open_pipeline_editor(session_id=当前工程会话ID, stage=1或2)` 控制展示阶段，已打开的同会话页面会同步命令；前端阶段按钮和确认计算按钮仅供调试。阶段 02 必须先完成场景的人工确认，阶段切换本身不执行计算，也不替代参数审核。
+正常模式由 Agent 调用 `open_pipeline_editor(session_id=当前工程会话ID, stage=1或2)` 控制展示阶段，已打开的同会话页面会同步命令。阶段 02 先完成场景确认；切换阶段不执行计算，也不替代参数审核。
 
-独立调试时使用 `.venv/Scripts/python.exe run_web.py --debug --pipeline <Python流水线文件或ID>`，启用前端阶段切换及确认计算按钮。`--stage 2` 仅与 `--debug` 一起使用；未传 `--debug` 时按 AI 控制模式运行，不能通过浏览器地址参数启用调试。即使处于调试模式，修改参数也只保存并撤销旧计算授权，须显式确认后计算。
+独立调试使用 `.venv/Scripts/python.exe run_web.py --debug --pipeline <JSON路径或ID>`；`--stage 2` 配合 `--debug`。独立 Web 与 MCP 编辑器分别使用空闲端口。参数修改只保存并撤销旧授权，须重新检查、确认后计算。

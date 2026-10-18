@@ -1,0 +1,42 @@
+{
+  "id": "thermal.water_enthalpy",
+  "name": "给水焓值查表计算",
+  "category": "thermal",
+  "description": "基于 IAPWS-95 国际水蒸气热力学科学基准状态方程，根据锅炉给水压力与给水温度计算给水初始比焓值。",
+  "notes": "给水通常为过冷未饱和水，压力对水比焓影响较小，温度为主要决定因素。",
+  "formula_type": "empirical",
+  "inputs": [
+    {
+      "name": "feedwater_pressure",
+      "unit": "MPa",
+      "description": "给水绝对压力（MPa）",
+      "min_value": 0.05,
+      "max_value": 25.0,
+      "default_value": 0.1,
+      "kind": "input"
+    },
+    {
+      "name": "feedwater_temperature",
+      "unit": "℃",
+      "description": "给水温度（℃）",
+      "min_value": 5.0,
+      "max_value": 150.0,
+      "default_value": 20.0,
+      "kind": "input"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "feedwater_enthalpy",
+      "unit": "kJ/kg",
+      "description": "给水比焓（kJ/kg）",
+      "min_value": 10.0,
+      "max_value": 1000.0,
+      "default_value": null,
+      "kind": "input"
+    }
+  ],
+  "expression": null,
+  "is_bidirectional": false,
+  "handler": "iapws95.water_enthalpy"
+}

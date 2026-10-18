@@ -3,8 +3,7 @@ Regression tests comparing pipeline outputs with engineering calculations.
 """
 
 import pytest
-import formulas
-import pipelines
+import core.catalog
 from core.pipeline import pipeline_registry
 from core.formula import default_formula_registry
 
