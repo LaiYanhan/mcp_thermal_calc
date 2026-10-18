@@ -1,0 +1,7 @@
+# Runtime versions verified with Python 3.13 on Windows.
+mcp==2.3.0
+pydantic==2.14.1
+sympy==1.14.0
+iapws==1.5.5
+starlette==1.8.0
+uvicorn==0.54.0

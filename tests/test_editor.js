@@ -104,7 +104,7 @@ function editorHarness(status = 200, search = '') {
     requests.push({url,body:options.body && JSON.parse(options.body)});
     return {ok:status===200,status,json:async()=>status===200 ? {is_complete:true} : {error:'测试接口拒绝'}};
   };
-  vm.runInContext(`syncFromBackend = async () => {}; sessionView = {current_state:'CALCULATED',inspected_parameters:{filled_inputs:{x:3}}}; activeStage = 2; initializeEditor();`,context);
+  vm.runInContext(`syncFromBackend = async () => {}; debugMode = true; sessionView = {current_state:'CALCULATED',inspected_parameters:{filled_inputs:{x:3}}}; activeStage = 2; initializeEditor();`,context);
   return {context,listeners,requests,output,elements};
 }
 
@@ -114,6 +114,51 @@ test('输入后直接确认使用新值，零值不被默认值覆盖', async ()
   assert.equal(h.output.textContent,'—');
   await vm.runInContext('handlePrimaryAction()',h.context);
   assert.deepEqual(h.requests.map(r=>r.body), [{parameters:{x:0}},{confirmed:true},{}]);
+});
+
+test('普通模式前端不能自行切换阶段或确认计算', async () => {
+  const h = editorHarness();
+  vm.runInContext('debugMode = false; activeStage = 1;', h.context);
+  await vm.runInContext('switchStage(2); handlePrimaryAction(); mutationQueue', h.context);
+  assert.equal(vm.runInContext('activeStage', h.context), 1);
+  assert.equal(h.requests.length, 0);
+});
+
+test('调试模式可以在前端切换阶段', async () => {
+  const h = editorHarness();
+  vm.runInContext('activeStage = 1; renderGraph = () => {};', h.context);
+  await vm.runInContext('switchStage(2); mutationQueue', h.context);
+  assert.equal(vm.runInContext('activeStage', h.context), 2);
+  assert.equal(h.requests.length, 0);
+});
+
+test('参数微调只保存新值，不确认、不计算', async () => {
+  const h = editorHarness();
+  h.listeners.input({target:{dataset:{parameter:'x'},value:'7'}});
+  h.listeners.change({target:{dataset:{parameter:'x'},value:'7'}});
+  await vm.runInContext('mutationQueue', h.context);
+  assert.deepEqual(h.requests.map(item => item.url), ['/api/session/default/parameters']);
+  assert.equal(h.output.textContent, '—');
+  assert.match(h.elements['editor-message'].textContent, /重新确认/);
+});
+
+test('普通页面忽略 URL 阶段，按 AI 后端命令同步阶段且不确认计算', async () => {
+  let stage = 1;
+  const requests = [];
+  const context = vm.createContext({URLSearchParams, location:{search:'?stage=2'}});
+  vm.runInContext(readFileSync(require.resolve('../ui_editor.js'), 'utf8'), context);
+  context.fetch = async url => {
+    requests.push(url);
+    return {ok:true, json:async()=>({editor_debug:false, editor_stage:stage,
+      current_state:'PARAMETERS_INSPECTED', validation:{errors:[]}})};
+  };
+  vm.runInContext('renderGraph = () => {}; showMessage = () => {};', context);
+  await vm.runInContext('syncFromBackend()', context);
+  assert.equal(vm.runInContext('activeStage', context), 1);
+  stage = 2;
+  await vm.runInContext('syncFromBackend()', context);
+  assert.equal(vm.runInContext('activeStage', context), 2);
+  assert.deepEqual(requests, ['/api/session/default', '/api/session/default']);
 });
 
 for (const status of [400,422,500]) test(`HTTP ${status} 后不继续确认或计算`, async () => {

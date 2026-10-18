@@ -28,6 +28,7 @@ class StateTransitionError(Exception):
 
 class SessionState(BaseModel):
     session_id: str
+    editor_stage: int = Field(default=1, ge=1, le=2, strict=True)
     current_state: WorkflowState = WorkflowState.INITIAL
     scenario_id: Optional[str] = None
     scenario_name: Optional[str] = None
@@ -69,6 +70,7 @@ class WorkflowManager:
 
     @staticmethod
     def _reset_confirmation(session: SessionState) -> None:
+        session.editor_stage = 1
         session.current_state = WorkflowState.SCENARIO_PROPOSED
         session.scenario_signature = None
         session.parameter_signature = None
@@ -242,6 +244,18 @@ class WorkflowManager:
                 "calculated_value": value, "unit": pin.unit}
 
     @synchronized
+    def set_editor_stage(self, session_id: str, stage: int) -> None:
+        """AI 显式切换展示阶段，不代替场景确认、参数确认或计算。"""
+        if type(stage) is not int or stage not in (1, 2):
+            raise ValueError("编辑器阶段必须为 1 或 2")
+        current = self._refresh(self.get_or_create_session(session_id))
+        if stage == 2 and not current.scenario_signature:
+            raise StateTransitionError("请先获得人工场景确认，再切换至阶段 02")
+        session = current.model_copy(deep=True)
+        session.editor_stage = stage
+        self._commit(session)
+
+    @synchronized
     def get_session_view(self, session_id: str) -> Dict[str, Any]:
         session = self._refresh(self.get_or_create_session(session_id))
         pipeline = self._pipeline(session) if session.pipeline_data else None
@@ -255,6 +269,7 @@ class WorkflowManager:
                     if name in output_pins:
                         variables[variable] = {**asdict(output_pins[name]), "name": variable}
         return deepcopy({"session_id": session_id, "current_state": session.current_state.value,
+                         "editor_stage": session.editor_stage,
                          "scenario_id": session.scenario_id, "scenario_name": session.scenario_name,
                          "scenario_description": session.scenario_description, "pipeline": pipeline.to_dict() if pipeline else None,
                          "provided_parameters": session.provided_parameters,

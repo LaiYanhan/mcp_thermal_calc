@@ -265,8 +265,8 @@ industrial_heat_pump_steam_pipeline = Pipeline(
         "实现源侧/用户侧削峰填谷、大幅降低耗电量与运行成本。"
     ),
     notes=(
-        "1. 基础热工比焓与有效焓差框架已初始化就绪；\n"
-        "2. 详细热泵制热转换、COP 折算及运行经济性步骤待用户根据工程实际搭建装配。"
+        "1. 已包含比焓、供热量、COP 折算、电耗、选型及运行经济性计算；\n"
+        "2. COP 为给定工况假设，未建立热源侧与温升性能模型，需依据实际设备性能核对。"
     ),
     required_inputs=HEAT_PUMP_STEAM_REQUIRED_INPUTS,
     steps=HEAT_PUMP_STEAM_STEPS,

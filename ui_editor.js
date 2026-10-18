@@ -132,6 +132,7 @@ let sessionView, selectedStepId = null, drawerPipeline = null, activeStage = 1;
 let insertionMode = "after", insertionAnchor = null, panX = 0, panY = 0, busy = false;
 let mutationQueue = Promise.resolve(), wireFrame = null, drag = null, highlightedNode = null;
 let pendingParameters = {};
+let debugMode = false, debugStageInitialized = false;
 const $ = id => document.getElementById(id);
 const urlParams = typeof location === "undefined" ? new URLSearchParams() : new URLSearchParams(location.search);
 const sessionId = urlParams.get("session_id") || "default";
@@ -171,15 +172,26 @@ function enqueue(action) {
 
 async function syncFromBackend() {
   const query = initialSessionLoad && queryParams.toString();
-  sessionView = await api(sessionUrl + (query ? `?${query}` : ""));
+  const nextView = await api(sessionUrl + (query ? `?${query}` : ""));
+  const changed = JSON.stringify(nextView) !== JSON.stringify(sessionView);
+  sessionView = nextView;
+  debugMode = sessionView.editor_debug === true;
   initialSessionLoad = false;
   if (query && queryParams.has("reset") && typeof history !== "undefined") {
     const url = new URL(location.href);
     url.searchParams.delete("reset");
     history.replaceState(null, "", url);
   }
-  if (needsScenario()) activeStage = 1;
-  renderGraph();
+  const previousStage = activeStage;
+  if (debugMode) {
+    if (!debugStageInitialized) {
+      activeStage = urlParams.get("stage") === "2" ? 2 : 1;
+      debugStageInitialized = true;
+    }
+  } else {
+    activeStage = sessionView.editor_stage === 2 ? 2 : 1;
+  }
+  if (changed || previousStage !== activeStage) renderGraph();
   const errors = sessionView.validation?.errors || [];
   showMessage(errors.map(item => item.message).join("；"));
 }
@@ -192,6 +204,7 @@ async function savePipeline(pipeline) {
 }
 
 function switchStage(stage) {
+  if (!debugMode) return;
   if (!sessionView || (stage === 2 && needsScenario())) return;
   if (Object.keys(pendingParameters).length) {
     const parameters = takePendingParameters();
@@ -207,6 +220,7 @@ function takePendingParameters() {
 }
 
 function handlePrimaryAction() {
+  if (!debugMode) return;
   const parameters = takePendingParameters();
   return enqueue(async () => {
     if (needsScenario()) {
@@ -401,8 +415,11 @@ function renderGraph() {
 
   $("tab-stage-1").classList.toggle("bg-white", activeStage === 1);
   $("tab-stage-2").classList.toggle("bg-white", activeStage === 2);
+  $("tab-stage-1").disabled = !debugMode;
+  $("tab-stage-2").disabled = !debugMode;
   $("stage-desc-hint").textContent = activeStage === 1 ? "流程拓扑审核" : "参数核对与计算结果";
   $("btn-main-action").textContent = needsScenario() ? "确认场景拓扑" : activeStage === 1 ? "核对参数" : "确认参数并计算";
+  $("btn-main-action").hidden = !debugMode;
   positionToolbar(); scheduleWires();
 }
 
@@ -703,6 +720,7 @@ function initializeEditor() {
     enqueue(async () => {
       await api(sessionUrl + "/parameters", {parameters});
       await syncFromBackend();
+      showMessage("参数已保存，旧结果已失效。请重新确认参数后再执行计算。");
     });
   });
   canvas.addEventListener("pointerdown", event => {
@@ -741,6 +759,12 @@ function initializeEditor() {
   }, {passive: false});
   window.addEventListener("resize", scheduleWires);
   enqueue(syncFromBackend);
+  // 同步 AI 的阶段命令和计算结果；本地编辑期间不覆盖尚未提交的输入。
+  if (typeof setInterval !== "undefined") setInterval(() => {
+    if (busy || drag || drawerPipeline || Object.keys(pendingParameters).length ||
+        document.activeElement?.matches("input,select,textarea")) return;
+    enqueue(syncFromBackend);
+  }, 1000);
 }
 
 if (typeof module !== "undefined") module.exports = {routeWire, makeStep, sameUnit, escapeHtml, effectivePins, configureTarget};

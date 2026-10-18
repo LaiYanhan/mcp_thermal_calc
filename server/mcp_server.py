@@ -36,6 +36,7 @@ def run_workflow(function, **kwargs):
 
 
 def editor_link(session_id, stage):
+    workflow_manager.set_editor_stage(session_id, stage)
     base = ensure_web_server_running()
     return base + "/editor?" + urlencode({"session_id": session_id, "stage": stage})
 
@@ -145,12 +146,14 @@ def register_new_pipeline(pipeline_code: str, pipeline_filename: str, human_appr
 
 @mcp_server.tool()
 def open_pipeline_editor(session_id: str = "default_session", stage: int = 1) -> str:
-    """打开同进程的流水线编辑器，页面以会话真实状态为准。"""
+    """由 AI 显式切换同一会话的编辑器阶段并打开链接；已有页面同步切换。
+    人工确认场景后可传 stage=2 进入参数核对；不授权计算，不执行重算。
+    """
     try:
         url = editor_link(session_id, stage)
         webbrowser.open(url)
-        return response({"status": "SUCCESS", "editor_url": url})
-    except RuntimeError as error:
+        return response({"status": "SUCCESS", "editor_url": url, "stage": stage})
+    except (RuntimeError, ValueError, TypeError, StateTransitionError) as error:
         return response({"error": str(error)})
 
 

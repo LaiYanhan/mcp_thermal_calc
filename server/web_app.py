@@ -84,7 +84,8 @@ async def get_session_endpoint(request):
                 workflow_manager.propose_existing_scenario(session_id, pipeline.id, "独立测试调试", {})
         elif not session.scenario_id or reset_param:
             workflow_manager.propose_existing_scenario(session_id, "scenario_electric_heater_salt_steam", "基准工况", {})
-        return JSONResponse(workflow_manager.get_session_view(session_id))
+        return JSONResponse({**workflow_manager.get_session_view(session_id),
+                             "editor_debug": bool(getattr(request.app.state, "editor_debug", False))})
 
 @api_endpoint
 async def update_pipeline_endpoint(request):

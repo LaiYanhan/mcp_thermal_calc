@@ -16,7 +16,7 @@
 ```
 .
 ├── GLOSSARY.md               # 领域统一词汇表 (Domain Glossary)
-├── docs/adr/                 # 架构决策记录 (ADR 0001 ~ 0005)
+├── docs/adr/                 # 架构决策记录
 ├── constants/                # 独立工程常量与默认参数库
 │   ├── default_parameters.py # 默认工况参数基准表（含中文释义与单位）
 │   ├── molten_salt.py        # HITEC/太阳盐热物性状态方程 (密度/导热/粘度/比热)
@@ -32,7 +32,7 @@
 │   └── sizing/               # SGS规格整定、电加热器整定、主变压器查表选型、熔盐采购量整定
 ├── pipelines/                # 场景计算管道库 (声明式 DAG)
 │   ├── electric_heater_salt_steam.py   # 基准场景：电加热器熔盐储热供汽流水线
-│   └── industrial_heat_pump_steam.py  # 新场景：工业热泵储能供汽流水线框架
+│   └── industrial_heat_pump_steam.py  # 工业热泵储能供汽（给定 COP 的简化模型）
 ├── server/                   # MCP 服务端接口层
 │   └── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 11 个工程与工作流工具
 ├── skills/                   # 智能体交互技能说明书
@@ -44,16 +44,17 @@
 
 ##  启动与使用指南
 
-### 1. 激活虚拟环境
-本项目已通过 `uv` 初始化 `.venv` 环境：
-```bash
-# Windows
-.venv\Scripts\activate
+### 1. 安装依赖（Windows PowerShell）
+需要 Python 3.13 和 `uv`。已验证的运行依赖在 `requirements.txt`，测试依赖在 `requirements-dev.txt`；前端测试还需要 PATH 中的 Node.js。首次安装：
+```powershell
+uv venv --python 3.13 .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements-dev.txt
 ```
+已有虚拟环境时跳过创建命令。仅运行服务可改用 `requirements.txt`。
 
 ### 2. 运行自动化测试与数据回归核对
-```bash
-.venv\Scripts\pytest -v tests/
+```powershell
+.\.venv\Scripts\python.exe -m pytest -v tests/
 ```
 前端回归使用 Node.js（`node --test tests/test_editor.js`），完整 pytest 会一并运行。测试数据写入独立临时目录。
 
@@ -63,10 +64,37 @@
 ```
 可直接配置到 Claude Desktop、Cursor 或企业级 Agent 编排系统中。
 
+#### 安装到本机 Codex
+
+在项目根目录执行以下 PowerShell 命令。服务使用绝对路径启动，不依赖聊天工作目录；UTF-8 环境变量保证中文协议响应正常。Skill 安装到用户技能目录，MCP 使用独立服务名 `thermal-calc-sizing`。
+
+```powershell
+$projectRoot = (Get-Location).Path
+$codexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+codex mcp add thermal-calc-sizing --env PYTHONUTF8=1 --env PYTHONIOENCODING=utf-8 --env "THERMAL_CALC_DATA_DIR=$projectRoot\.data" -- "$projectRoot\.venv\Scripts\python.exe" "$projectRoot\server\mcp_server.py"
+$skillTarget = Join-Path $codexRoot 'skills\thermal-calculation-agent'
+if (Test-Path $skillTarget) { throw "Skill 目录已存在，请先备份再更新：$skillTarget" }
+New-Item -ItemType Directory -Path (Split-Path $skillTarget) -Force | Out-Null
+Copy-Item -LiteralPath "$projectRoot\skills\thermal-calculation-agent" -Destination $skillTarget -Recurse
+codex mcp get thermal-calc-sizing
+```
+
+Skill 在后续轮次可被发现；若 MCP 工具列表尚未刷新，重启 Codex 后新建聊天。可用 `$thermal-calculation-agent` 指定技能。项目目录是安装后的运行源，移动项目后应重新注册 MCP；修改 Skill 后需同步安装副本。
+
+真实 stdio 集成回归见 `tests/test_mcp_stdio.py`，覆盖握手、工具发现、未授权计算拦截和确认后的完整计算。测试使用临时数据和自动化确认样例，不打开浏览器。
+
 ### 4. 使用本地编辑器
 ```bash
 .venv\Scripts\python run_web.py
 ```
+
+默认由 AI 通过 `open_pipeline_editor(session_id=..., stage=2)` 切换到阶段 02；已打开的同会话页面会同步阶段命令与计算结果。前端阶段切换及确认计算按钮仅在独立调试时启用：
+
+```powershell
+.\.venv\Scripts\python.exe run_web.py --debug --pipeline pipelines/electric_heater_salt_steam.py
+```
+
+`--stage 2` 必须配合 `--debug`。参数微调只保存参数并使旧结果和授权失效；正常模式由 AI 重新核对参数、获得人工确认后执行计算，调试模式需显式点击确认计算。输入或保存参数均不会自动重算。
 从 MCP 打开编辑器时，由 MCP 进程启动同一份 Web 服务；此时不用另开 `run_web.py`。编辑器仅监听本机，浏览器写入必须同源。
 
 独立调试可用 `run_web.py --list` 查看流水线，或用 `run_web.py --pipeline <ID或模块路径> --reset` 从代码定义重新打开。场景选择与重置仅用于页面首次加载；成功后会移除地址中的 `reset`，后续保存、确认、计算和刷新继续使用当前会话。

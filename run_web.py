@@ -14,7 +14,7 @@
     python run_web.py -p industrial_heat_pump_steam --reset
 
     # 4. 直接进入阶段 02 参数核对与计算结果界面:
-    python run_web.py -p industrial_heat_pump_steam -s 2
+    python run_web.py --debug -p industrial_heat_pump_steam -s 2
 
     # 5. 查看当前系统中所有已注册的可选流水线清单:
     python run_web.py --list
@@ -43,6 +43,10 @@ def parse_args():
   python run_web.py -p industrial_heat_pump_steam --reset            # 强制清空缓存并重绘热泵图纸
   python run_web.py --list                                           # 打印全部已注册流水线清单
         """
+    )
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="启用前端阶段切换与确认计算按钮；默认由 AI 通过 MCP 推进流程"
     )
     parser.add_argument(
         "-p", "--pipeline",
@@ -87,7 +91,10 @@ def parse_args():
         action="store_true",
         help="启动后不自动唤起系统默认浏览器"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.stage != 1 and not args.debug:
+        parser.error("--stage 2 仅可与 --debug 一起使用；正常模式由 AI 切换阶段")
+    return args
 
 
 def print_registered_pipelines():
@@ -114,6 +121,7 @@ def open_browser(target_url: str):
 
 def main():
     args = parse_args()
+    app.state.editor_debug = args.debug
 
     if args.list:
         print_registered_pipelines()
@@ -138,6 +146,7 @@ def main():
     print(f" 当前调试流水线: 【{pipeline.name}】 ({pipeline.id})")
     print(f" 拓扑规模: {len(p_steps := pipeline.steps)} 个算子步骤, {len(pipeline.required_inputs)} 个输入/常量")
     print(f" 阶段设定: 阶段 0{args.stage} ({'流程拓扑审核' if args.stage == 1 else '参数核对与计算'})")
+    print(f" 阶段控制: {'前端调试（--debug）' if args.debug else 'AI / MCP'}")
     if args.reset:
         print(" 会话模式: 已启用 --reset，将强制丢弃历史草稿并重新初始化")
     print(f" 服务地址: http://{args.host}:{args.port}")
