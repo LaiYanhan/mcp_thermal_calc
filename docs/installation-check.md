@@ -9,6 +9,7 @@
 - `tests/test_mcp_stdio.py` 覆盖严格 JSON 公式/管道注册、目录发现和人工确认后的执行，注册本身不授予计算权限。协议测试使用隔离资产及数据目录，不打开用户浏览器。
 - 文档中的 JSON 示例通过当前 Pydantic 定义、公式构造和管道契约校验。项目 Skill 与安装副本通过 Skill Creator `quick_validate.py`，两份 Skill 及参考文件内容一致。
 - 本轮文档同步核对了 3 个完整 JSON 示例、修改文档的本地链接以及 CLI `--help` / `--list`；MCP stdio 与编辑器阶段控制的 8 项相关回归通过。`uv pip check` 确认当前依赖兼容；未修改计算代码或新增项目依赖。
+- 按用户要求恢复原 Skill 的工程红线、完整状态机图、六步详细流程、确认话术、参数表格和报告清单；业务流程仅保留 Python 转 JSON 所需的四处技术表述更新，其余内容与重写前逐字一致。JSON 扩展示例作为补充保留，不替代主文档的详细步骤或注意事项。
 - 实现与独立审查记录见 [交接文档](../HANDOFF.md) 及 [重构审查记录](../.scratch/json-pipeline-formula-refactor/review.md)。测试证据不代表所有工业场景或设备性能均已认证。
 
 ## 本机安装记录
