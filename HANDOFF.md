@@ -62,3 +62,4 @@
 - 前端 `ui_prototype.html`、`ui_editor.js` 与 `core/state_machine.py` 保持原样。
 - 参见 ADR-0014、README 和更新后的项目技能说明；历史 `.data/` 资产未转换。
 - 范围提示不拦截有限输入；除零、非有限结果及物性库不可求解状态仍返回真实错误。
+- 两轴独立审查及修复后复审已完成，无遗留项；验证与审查详情见 [review.md](.scratch/json-pipeline-formula-refactor/review.md)。
