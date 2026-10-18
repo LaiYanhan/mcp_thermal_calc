@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict
 from core.formula import AlgebraicFormula
 from core.pipeline import Pipeline
-from core.types import FormulaMetadata, FormulaType, Pin, PipelineStep
+from core.types import FormulaMetadata, FormulaType, Pin, PipelineStep, InputConstraint
 
 
 def validate_filename(filename: str) -> None:
@@ -30,9 +30,9 @@ def parse_definition(source: str, kind: str):
     tree = ast.parse(source)
     if len(list(ast.walk(tree))) > 4000:
         raise ValueError("定义过于复杂")
-    constructors = {"Pin": Pin, "FormulaMetadata": FormulaMetadata, "PipelineStep": PipelineStep,
+    constructors = {"Pin": Pin, "InputConstraint": InputConstraint, "FormulaMetadata": FormulaMetadata, "PipelineStep": PipelineStep,
                     "Pipeline": Pipeline, "AlgebraicFormula": AlgebraicFormula}
-    imports = {"core.types": {"Pin", "FormulaMetadata", "FormulaType", "PipelineStep"},
+    imports = {"core.types": {"Pin", "InputConstraint", "FormulaMetadata", "FormulaType", "PipelineStep"},
                "core.formula": {"AlgebraicFormula", "default_formula_registry"},
                "core.pipeline": {"Pipeline", "PipelineStep", "pipeline_registry"}}
     values = {}

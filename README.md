@@ -93,6 +93,8 @@ AI 可先调用 `list_formulas` 查看 `variables` 中的中文含义、单位�
 
 全部步骤的公式输出自动成为结构化成果，包括中间结果。`results` 提供步骤、公式、参数含义、单位和值，`final_outputs` 提供计算输出的变量值索引，输入和常量另存于 `initial_inputs`。不再需要成果分组或输出清单；旧 JSON 中的成果分组字段读取时忽略，旧的设备/经营摘要字段不再返回。
 
+场景专用参数校验在 Python 流水线的 `input_constraints` 中声明。例如 `InputConstraint(variable="upper", greater_than="lower", message="上限必须大于下限")`，或使用 `min_value`、`max_value` 声明范围（从 `core.types` 导入 `InputConstraint`）。约束引用流水线输入名称；修改名称时同步修改约束。核心只执行显式约束，不根据参数名称推断业务规则。熔盐场景的规则位于 `pipelines/validation.py`，旧工程的 `salt_profile` 字段由该业务模块注册的转换方法处理；约束随会话保存与恢复，AI 场景目录也会返回约束。
+
 会话、布局、自定义管道与全局算子修改默认保存在 `.data/`，可通过 `THERMAL_CALC_DATA_DIR` 指定其他目录。重启恢复工程草稿与参数，授权和旧计算结果不跨进程恢复。内置 Python 公式仍位于 `formulas/`，动态注册不会执行或覆盖 Python 源文件。
 
 新增代数算子必须提供 `id`、`name`、`equation`、`inputs` 和 `outputs`；每个引脚需明确 `name`、`description`、`unit`。表达式支持变量、有限数值和 `+ - * / **`，必须具有唯一正向输出；禁止导入、函数调用和属性访问。已有物性/查表算子的计算实现不能通过代数文本编辑。

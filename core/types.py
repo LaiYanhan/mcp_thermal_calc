@@ -57,8 +57,40 @@ class Pin:
 def units_match(left: str, right: str) -> bool:
     """同量纲同倍率的常见书写别名；不同倍率必须显式转换。"""
     aliases = {"MWt": "MW", "MWe": "MW", "MWht": "MWh", "°C": "℃",
-               "kJ/(kg·K)": "kJ/(kg·℃)", "1": "/"}
+               "kJ/(kg·K)": "kJ/(kg·℃)", "1": "/", "dimensionless": "/"}
     return aliases.get(left, left) == aliases.get(right, right)
+
+
+@dataclass
+class InputConstraint:
+    """流水线显式声明的输入范围或两个输入之间的大小关系。"""
+    variable: str
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    greater_than: Optional[str] = None
+    message: str = ""
+
+    def __post_init__(self):
+        Pin(self.variable, "/", "约束变量", self.min_value, self.max_value)
+        if self.greater_than is not None:
+            Pin(self.greater_than, "/", "比较变量")
+            if self.variable == self.greater_than:
+                raise ValueError("大小关系不能比较同一个变量")
+        if self.min_value is None and self.max_value is None and self.greater_than is None:
+            raise ValueError("输入约束必须声明范围或大小关系")
+        if not isinstance(self.message, str):
+            raise ValueError("约束提示必须为文本")
+
+    def validate(self, values: Dict[str, float]) -> None:
+        if self.variable not in values:
+            return
+        value = values[self.variable]
+        if self.min_value is not None and value < self.min_value:
+            raise ValueError(self.message or f"参数 {self.variable} 不能小于 {self.min_value}")
+        if self.max_value is not None and value > self.max_value:
+            raise ValueError(self.message or f"参数 {self.variable} 不能大于 {self.max_value}")
+        if self.greater_than is not None and self.greater_than in values and value <= values[self.greater_than]:
+            raise ValueError(self.message or f"参数 {self.variable} 必须大于 {self.greater_than}")
 
 
 @dataclass

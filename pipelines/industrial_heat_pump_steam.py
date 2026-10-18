@@ -10,6 +10,7 @@
 from constants.default_parameters import DEFAULT_VALLEY_SALT_STEAM_PARAMS
 from core.pipeline import Pipeline, PipelineStep, pipeline_registry
 from core.types import Pin
+from pipelines.validation import salt_temperature_constraints
 
 
 def _get_pin(key: str) -> Pin:
@@ -23,7 +24,7 @@ def _get_pin(key: str) -> Pin:
             min_value=cfg.get("min_value"),
             max_value=cfg.get("max_value"),
             default_value=cfg.get("value"),
-            kind="input",
+            kind="constant" if key in ("electric_heater_efficiency", "heat_exchanger_efficiency", "thermal_storage_efficiency", "salt_specific_heat", "salt_safety_margin", "heat_pump_cop") else "input",
         )
     return Pin(name=key, unit="/", description=key, kind="input")
 
@@ -48,6 +49,16 @@ HEAT_PUMP_STEAM_REQUIRED_INPUTS = [
     _get_pin("heat_pump_cop"),               # 高温工业热泵制热性能系数 COP
     _get_pin("heat_exchanger_efficiency"),   # SGS换热器换热综合效率 (工程常量，默认 0.99)
     _get_pin("thermal_storage_efficiency"),  # 熔盐储热罐保温与储热效率 (工程常量，默认 0.99)
+
+    # --- 熔盐储热参数 ---
+    _get_pin("salt_hot_temperature"),
+    _get_pin("salt_cold_temperature"),
+    _get_pin("salt_specific_heat"),
+    _get_pin("salt_safety_margin"),
+
+    # --- 运行经济参数 ---
+    _get_pin("valley_electricity_price"),
+    _get_pin("steam_market_price"),
 ]
 
 
@@ -259,6 +270,7 @@ industrial_heat_pump_steam_pipeline = Pipeline(
     ),
     required_inputs=HEAT_PUMP_STEAM_REQUIRED_INPUTS,
     steps=HEAT_PUMP_STEAM_STEPS,
+    input_constraints=salt_temperature_constraints(),
 )
 
 # 自动注册进管道全局注册表

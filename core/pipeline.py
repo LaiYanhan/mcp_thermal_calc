@@ -12,6 +12,7 @@ import re
 from core.formula import FormulaRegistry, registry as default_registry
 from core.types import (
     Pin,
+    InputConstraint,
     PipelineStep,
     PipelineExecutionResult,
     StepExecutionRecord,
@@ -41,7 +42,7 @@ class Pipeline:
         required_inputs: List[Pin],
         steps: List[PipelineStep],
         layout: Optional[Dict[str, Any]] = None,
-        salt_profile: Optional[str] = None,
+        input_constraints: Optional[List[InputConstraint]] = None,
     ):
         self.id = id
         self.name = name
@@ -51,7 +52,20 @@ class Pipeline:
         self.required_inputs = required_inputs
         self.steps = steps
         self.layout = layout or {}
-        self.salt_profile = salt_profile
+        self.input_constraints = list(input_constraints or [])
+
+    def _constraint_errors(self):
+        inputs = {pin.name: pin for pin in self.required_inputs}
+        errors = []
+        for constraint in self.input_constraints:
+            names = [constraint.variable]
+            if constraint.greater_than is not None:
+                names.append(constraint.greater_than)
+            if any(name not in inputs for name in names):
+                errors.append("输入约束引用了未声明的输入：" + ", ".join(names))
+            elif len(names) == 2 and not units_match(inputs[names[0]].unit, inputs[names[1]].unit):
+                errors.append("输入约束比较的参数单位不兼容：" + ", ".join(names))
+        return errors
 
     def validate(self, formula_registry=None) -> Dict[str, Any]:
         """检查图契约并返回稳定拓扑序；不执行任何业务计算。"""
@@ -70,6 +84,8 @@ class Pipeline:
             if pin.name in sources:
                 error("duplicate", f"重复输入 {pin.name}")
             sources[pin.name] = (None, pin.unit)
+        for message in self._constraint_errors():
+            error("constraint", message)
         steps = {}
         contracts = {}
         for step in self.steps:
@@ -182,17 +198,11 @@ class Pipeline:
                     "max": pin.max_value
                 })
 
-        hot, cold = filled.get("salt_hot_temperature"), filled.get("salt_cold_temperature")
-        if hot is not None and cold is not None and hot <= cold:
-            raise ValueError("高温熔盐温度必须大于低温熔盐温度")
-        if self.salt_profile:
-            from constants.molten_salt import SALT_PROFILES
-            if self.salt_profile not in SALT_PROFILES:
-                raise ValueError("未知的储热介质")
-            profile = SALT_PROFILES[self.salt_profile]
-            for value in (hot, cold):
-                if value is not None and not profile.min_temp_c <= value <= profile.max_temp_c:
-                    raise ValueError(f"{profile.name} 温度必须在 {profile.min_temp_c}–{profile.max_temp_c} ℃ 内")
+        constraint_errors = self._constraint_errors()
+        if constraint_errors:
+            raise ValueError("；".join(constraint_errors))
+        for constraint in self.input_constraints:
+            constraint.validate(filled)
         for step in self.steps:
             formula = (formula_registry or default_registry).get(step.formula_id)
             known_pins, _ = formula.pin_contract(step.solve_target)
@@ -291,12 +301,13 @@ class Pipeline:
             "required_inputs": [asdict(pin) for pin in self.required_inputs],
             "steps": [step.model_dump() for step in self.steps],
             "layout": deepcopy(self.layout),
-            "salt_profile": self.salt_profile,
+            "input_constraints": [asdict(constraint) for constraint in self.input_constraints],
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Pipeline":
         """从字典反序列化生成管道实例"""
+        data = pipeline_registry.migrate_definition(data)
         required_inputs = [
             Pin(
                 name=p["name"],
@@ -329,7 +340,7 @@ class Pipeline:
             required_inputs=required_inputs,
             steps=steps,
             layout=data.get("layout", {}),
-            salt_profile=data.get("salt_profile"),
+            input_constraints=[InputConstraint(**item) for item in data.get("input_constraints", [])],
         )
 
     def insert_step(self, target_step_id: str, new_step: PipelineStep, position: str = "after") -> None:
@@ -363,6 +374,18 @@ class PipelineRegistry:
     """
     def __init__(self):
         self._pipelines: Dict[str, Pipeline] = {}
+        self._definition_migrations = []
+
+    def register_definition_migration(self, migration) -> None:
+        """业务模块注册旧定义转换；核心不解释业务字段。"""
+        if migration not in self._definition_migrations:
+            self._definition_migrations.append(migration)
+
+    def migrate_definition(self, data):
+        result = deepcopy(data)
+        for migration in self._definition_migrations:
+            result = migration(result)
+        return result
 
     def register(self, pipeline: Pipeline) -> None:
         if pipeline.id in self._pipelines:
@@ -469,7 +492,8 @@ class PipelineRegistry:
                     }
                     for pin in p.required_inputs
                 ],
-                "steps_count": len(p.steps)
+                "steps_count": len(p.steps),
+                "input_constraints": [asdict(constraint) for constraint in p.input_constraints],
             })
         return catalog
 

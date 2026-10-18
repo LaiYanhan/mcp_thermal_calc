@@ -9,6 +9,7 @@
 from constants.default_parameters import DEFAULT_VALLEY_SALT_STEAM_PARAMS
 from core.pipeline import Pipeline, PipelineStep, pipeline_registry
 from core.types import Pin
+from pipelines.validation import salt_temperature_constraints
 
 
 def _get_pin(key: str) -> Pin:
@@ -238,7 +239,7 @@ electric_heater_salt_steam_pipeline = Pipeline(
     ),
     required_inputs=ELECTRIC_HEATER_SALT_STEAM_REQUIRED_INPUTS,
     steps=ELECTRIC_HEATER_SALT_STEAM_STEPS,
-    salt_profile="HITEC",
+    input_constraints=salt_temperature_constraints("HITEC"),
 )
 
 # 自动注册进管道注册表

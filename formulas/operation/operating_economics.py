@@ -29,6 +29,27 @@ electric_heater_daily_electricity_formula = AlgebraicFormula(
     equation_str="daily_power_mwh = electric_heater_power * valley_electricity_hours",
 )
 
+# 保持 operation.daily_electricity 基础通用标识注册
+daily_electricity_formula = AlgebraicFormula(
+    metadata=FormulaMetadata(
+        id="operation.daily_electricity",
+        name="日消纳谷电电量计算",
+        category="operation",
+        description="根据电加热器运行功率与每日谷电蓄热时长，计算每日电加热器实际消纳的电量（MWh/d）。",
+        notes="",
+        formula_type=FormulaType.ALGEBRAIC,
+        inputs=[
+            Pin("electric_heater_power", "MW", "电加热器运行功率", min_value=0.1, max_value=2000.0),
+            Pin("valley_electricity_hours", "h", "每日谷电时长", min_value=0.5, max_value=24.0, default_value=8.0),
+        ],
+        outputs=[
+            Pin("daily_power_mwh", "MWh", "每日消纳谷电电量", min_value=0.1, max_value=48000.0)
+        ],
+        expression="daily_power_mwh = electric_heater_power * valley_electricity_hours",
+        is_bidirectional=True,
+    ),
+    equation_str="daily_power_mwh = electric_heater_power * valley_electricity_hours",
+)
 # ================= 1.2 热泵每日消纳谷电电量计算 =================
 # 公式：热泵输入电功率 * 每日谷电时长 = 每日消纳谷电电量
 heat_pump_daily_electricity_formula = AlgebraicFormula(
@@ -223,6 +244,7 @@ annual_operating_spread_formula = AlgebraicFormula(
 
 # 注册所有运行与经济公式
 default_formula_registry.register(electric_heater_daily_electricity_formula)
+default_formula_registry.register(daily_electricity_formula)
 default_formula_registry.register(heat_pump_daily_electricity_formula)
 default_formula_registry.register(annual_electricity_formula)
 default_formula_registry.register(daily_steam_production_formula)

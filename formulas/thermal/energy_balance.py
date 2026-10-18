@@ -214,15 +214,15 @@ heat_pump_electric_power = AlgebraicFormula(
         formula_type=FormulaType.ALGEBRAIC,
         inputs=[
             Pin("heat_pump_thermal_power", "MWt", "热泵输出热功率", min_value=0.1, max_value=2000.0),
-            Pin("cop", "dimensionless", "热泵COP", min_value=1.0, max_value=10.0, default_value=1.5),
+            Pin("heat_pump_cop", "/", "热泵COP", min_value=1.0, max_value=10.0, default_value=1.5),
         ],
         outputs=[
             Pin("heat_pump_electric_power", "MWe", "热泵输入电功率", min_value=0.1, max_value=2000.0)
         ],
-        expression="heat_pump_electric_power = heat_pump_thermal_power / cop",
+        expression="heat_pump_electric_power = heat_pump_thermal_power / heat_pump_cop",
         is_bidirectional=True,
     ),
-    equation_str="heat_pump_electric_power = heat_pump_thermal_power / cop",
+    equation_str="heat_pump_electric_power = heat_pump_thermal_power / heat_pump_cop",
 )
 
 
