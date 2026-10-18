@@ -289,7 +289,7 @@ class FormulaRegistry:
             raise ValueError("算子输入输出引脚不能重复")
         if metadata.formula_type == FormulaType.ALGEBRAIC:
             return AlgebraicFormula(metadata, metadata.expression)
-        return EmpiricalFormula(metadata, get_handler(metadata.handler))
+        return EmpiricalFormula(metadata, get_handler(metadata.handler, metadata.inputs, metadata.outputs))
 
     @synchronized
     def load_directory(self, directory=None) -> None:

@@ -124,3 +124,38 @@ def test_json_resolution_never_executes_python_files(tmp_path):
     with pytest.raises(ValueError, match="JSON"):
         pipeline_registry.resolve(str(path))
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("damage", ["input", "output", "unit"])
+def test_empirical_json_must_match_handler_pin_contract(damage):
+    definition = {
+        "id": "test.handler_contract", "name": "规格整定", "category": "sizing", "formula_type": "empirical",
+        "handler": "sizing.sgs_power",
+        "inputs": [{"name": "sgs_power", "unit": "MW", "description": "需求功率"}],
+        "outputs": [{"name": "sgs_sizing_mw", "unit": "MW", "description": "选型规格"}],
+    }
+    if damage == "unit":
+        definition["inputs"][0]["unit"] = "kW"
+    else:
+        definition["inputs" if damage == "input" else "outputs"][0]["name"] = "wrong_pin"
+    with pytest.raises(ValueError, match="处理函数"):
+        FormulaRegistry().save_definition(definition)
+
+
+def test_external_json_pipeline_can_be_resolved_by_id_after_file_selection(tmp_path):
+    from core.pipeline import PipelineRegistry
+    definition = pipeline_registry.get("scenario_electric_heater_salt_steam").to_dict()
+    definition["id"] = "external_json_scene"
+    path = tmp_path / "external.json"
+    path.write_text(json.dumps(definition), encoding="utf-8")
+    registry = PipelineRegistry()
+    selected = registry.resolve(str(path))
+    assert registry.get(selected.id).execute({}).final_outputs == selected.execute({}).final_outputs
+
+
+def test_low_pressure_steam_uses_pt_state_when_saturation_lookup_is_unavailable():
+    from core.formula import default_formula_registry
+    result = default_formula_registry.get("thermal.steam_enthalpy").execute({
+        "steam_pressure": 0.0001, "steam_temperature": 200,
+    })
+    assert result["steam_enthalpy"] == pytest.approx(2880.0499937995432)

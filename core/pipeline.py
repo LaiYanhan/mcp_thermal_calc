@@ -410,6 +410,7 @@ class PipelineRegistry:
             raise KeyError(f"未注册的计算管道ID: '{pipeline_id}'")
         return self._pipelines[pipeline_id]
 
+    @synchronized
     def resolve(self, target: str) -> Pipeline:
         """按 ID、名称或 JSON 文件解析管道，绝不查找或执行 Python 文件。"""
         clean = target.strip().replace("\\", "/")
@@ -423,6 +424,12 @@ class PipelineRegistry:
                 if candidate.is_file():
                     pipeline = Pipeline.from_dict(PipelineDefinition.model_validate(read_json(candidate)).model_dump())
                     pipeline.validated_steps()
+                    if pipeline.id in self._pipelines:
+                        existing = self._pipelines[pipeline.id]
+                        if existing.to_dict() != pipeline.to_dict():
+                            raise ValueError(f"流水线 {pipeline.id} 已注册且与 JSON 文件不同，请重启加载或使用独立 ID")
+                        return existing
+                    self.register(pipeline)
                     return pipeline
         stem = path.stem
         matches = [pipeline for pipeline in self._pipelines.values()
