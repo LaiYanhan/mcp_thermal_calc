@@ -1,5 +1,7 @@
 # 单向热工物性查表与双向代数符号求解分层
 
+更新：以下物性库名称反映最初决策。现由 [ADR-0013](0013-iapws-95-scientific-formulation-for-water-steam.md) 指定 IAPWS-95，[ADR-0014](0014-pure-json-declarative-formulas-and-pipelines.md) 将公式声明迁为 JSON、经验实现迁入 handler；代数双向与物性单向的分层继续有效。
+
 针对业务中“已知任意变量推导未知变量”的需求，我们决定系统公式内核明确解耦为两类：纯代数方程通过符号引擎（SymPy）支持任意方向的解析逆推求解（$a,b \Rightarrow c$ 或 $a,c \Rightarrow b$）；而水蒸气焓值等依托 IAPWS-IF97 物性库的复杂状态方程仅支持单向正向查表（$(P, T) \Rightarrow h$），不支持也不需要符号逆解。
 
 ## Considered Options

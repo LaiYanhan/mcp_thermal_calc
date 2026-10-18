@@ -1,7 +1,7 @@
 # Handoff: JSON 配置重构 (Pure JSON Declarative Formulas & Pipelines)
 
 ## 1. 目标与背景 (Context & Goal)
-本项目正从原先的“通过修改 Python 代码和模板支持扩展”重构为“通过纯 JSON 配置原子公式、输入输出变量及计算管道（DAG）”。
+本项目已从原先的“通过修改 Python 代码和模板支持扩展”重构为“通过纯 JSON 配置原子公式、输入输出变量及计算管道（DAG）”。
 所有方案已经过多轮技术推演（Grilling）与领域建模（Domain Modeling）严格对齐，重构规范已在 `.scratch/` 中就绪。
 
 6 张工单已于 2026-10-18 在 `refactor/json-pipeline-and-formulas` 分支实现；保留在当前分支供审核，尚未合并 `main`。完整回归 108 项通过；两个基准场景的全部默认输出与迁移前严格相等。
@@ -18,9 +18,9 @@
 2. **彻底删除物理数值范围审查**：
    - 彻底移除 `Pin.validate()` 和 `InputConstraint.validate()` 中针对 `min_value`/`max_value` 的越界抛错逻辑；
    - 移除物性查表黑盒中的水汽相态越界报错拦截；
-   - 允许任意有限数值直接执行计算；引脚中的 `min_value`/`max_value` 仅保留作为前端 UI 滑块/提示元数据。
+   - 有限数值可进入计算；除零、非有限结果及物性库自身不可解状态仍返回实际错误，不保证所有有限输入都有可求解结果。引脚中的 `min_value`/`max_value` 仅作为前端 UI 滑块/提示元数据。
 3. **严格保留人机协同状态机守卫**：
-   - `core/state_machine.py` 中的四阶段流转（`SCENARIO_PROPOSED` -> `confirm_scenario` -> `PARAMETERS_INSPECTED` -> `confirm_parameters` -> `execute_calculation`）**100% 完整保留**，未经人工确认严禁执行计算。
+   - `core/state_machine.py` 的完整流转保持不变：`SCENARIO_PROPOSED` → `confirm_scenario` → `SCENARIO_CONFIRMED` → `inspect_and_validate_parameters` → `PARAMETERS_INSPECTED` → `confirm_parameters` → `PARAMETERS_CONFIRMED` → `execute_calculation` → `CALCULATED`；未经人工确认严禁执行计算。
 4. **前端 100% 视觉效果与功能零变动**：
    - 前端画布（`ui_prototype.html`、`ui_editor.js`）零修改；
    - 后端通过 JSON 资产加载构建的会话视图（`get_session_view`）与原 API 保持 100% 字段级契约兼容，四色标注、DAG 连线、拓扑波浪布局由 JSON 数据无感驱动。
@@ -48,12 +48,12 @@
 
 ---
 
-## 4. 下一步开发建议技能 (Suggested Skills)
-后续在 Codex 或接续 Agent 进行开发时，建议针对以下场景调用 Skill 工具：
+## 4. 后续维护
 
-- `tdd`: 在根据工单编写代码时，优先采用测试驱动方式，确保每个垂直切片完成后与现存 Excel 基准数据实现 100% 数值对齐，并验证极端数值不报错。
-- `codebase-design`: 在构建 `core/handlers.py` 以及重构 `FormulaRegistry` / `PipelineRegistry` 的加载机制时，保持深模块与极简接缝。
-- `code-review`: 在每个工单完成或准备将分支合并回 `main` 之前，比对 `.scratch/.../spec.md` 审核代码一致性。
+- 6 张工单均已完成；新增业务先复用目录中的 JSON，按 [项目 Skill](skills/thermal-calculation-agent/SKILL.md) 的人工确认流程提议或注册。完整定义示例见 [JSON 注册参考](skills/thermal-calculation-agent/references/json-definitions.md)。
+- 修改核心计算或加载行为时，沿用已约定的引擎、状态机、HTTP 与数值边界测试接口；新 handler 同时声明输入输出名称及单位契约。探索工况允许进入计算，但仍验证真实的不可解错误。
+- 手工修改 JSON 后重启；MCP 注册即时生效。已有 ID 的不同定义不能通过另存一份 JSON 覆盖。更新部署时同时同步 Skill 主文档与参考文件，重启旧 MCP 进程刷新工具 schema。
+- 原子公式及管道保存在资产根目录，工程草稿和布局位于数据目录；历史 `.data/` 定义转换属于单独维护任务。安装及同步说明见 [installation-check.md](docs/installation-check.md)。
 
 ## 5. 本轮交接结果
 
@@ -63,3 +63,4 @@
 - 参见 ADR-0014、README 和更新后的项目技能说明；历史 `.data/` 资产未转换。
 - 范围提示不拦截有限输入；除零、非有限结果及物性库不可求解状态仍返回真实错误。
 - 两轴独立审查及修复后复审已完成，无遗留项；验证与审查详情见 [review.md](.scratch/json-pipeline-formula-refactor/review.md)。
+- 项目 Skill、本机安装副本及 Markdown 说明已同步为 JSON 架构；主 Skill 保留六步确认流程，扩展示例独立放在 `references/json-definitions.md`。文档示例校验与 8 项接口相关回归通过，安装副本同步前已备份；旧 MCP 进程需重启才加载新接口。

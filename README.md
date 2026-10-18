@@ -2,6 +2,8 @@
 
 为企业构建的确定性工程热工计算、离散设备规格选型与经济性测算 MCP 工具服务与 Agent 技能体系。
 
+当前版本使用 JSON 原子公式和自包含管道，内置 25 个公式、2 个场景。业务流程见 [项目 Skill](skills/thermal-calculation-agent/SKILL.md)，扩展示例见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)，实现与审查状态见 [HANDOFF.md](HANDOFF.md)。
+
 ##  系统核心特性与架构原则
 1. **AI 严禁私自计算（100% 确定性程序执行）**：所有热工物性（IAPWS-95）、能量守恒、设备选型与电费测算完全由 Python 核心计算，彻底杜绝大模型计算幻觉；
 2. **分阶段状态机与人工确认强守卫**：在 MCP 工具层内置状态机，必须经历“场景确认 $\rightarrow$ 参数缺项补全 $\rightarrow$ 参数审核确认 $\rightarrow$ 授权计算”，未经授权调用计算将被直接物理拦截；
@@ -18,7 +20,7 @@
 ├── GLOSSARY.md               # 领域统一词汇表 (Domain Glossary)
 ├── docs/adr/                 # 架构决策记录
 ├── constants/                # 独立工程常量与默认参数库
-│   ├── default_parameters.py # 默认工况参数基准表（含中文释义与单位）
+│   ├── default_parameters.py # 历史基准资料；运行时默认值以内联 JSON 为准
 │   ├── molten_salt.py        # HITEC/太阳盐热物性状态方程 (密度/导热/粘度/比热)
 │   └── equipment_catalog.py  # SGS/电加热器/国标变压器规格序列与阶梯造价函数
 ├── core/                     # 核心计算与调度引擎
@@ -36,7 +38,7 @@
 ├── server/                   # MCP 服务端接口层
 │   └── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 11 个工程与工作流工具
 ├── skills/                   # 智能体交互技能说明书
-│   └── thermal-calculation-agent/SKILL.md # 指导大模型执行状态机流程的详细规范
+│   └── thermal-calculation-agent/ # SKILL.md 与按需阅读的 references/JSON 示例
 └── tests/                    # 单元与回归测试套件
 ```
 
@@ -79,7 +81,7 @@ Copy-Item -LiteralPath "$projectRoot\skills\thermal-calculation-agent" -Destinat
 codex mcp get thermal-calc-sizing
 ```
 
-Skill 在后续轮次可被发现；若 MCP 工具列表尚未刷新，重启 Codex 后新建聊天。可用 `$thermal-calculation-agent` 指定技能。项目目录是安装后的运行源，移动项目后应重新注册 MCP；修改 Skill 后需同步安装副本。
+已有安装的更新方式见 [安装与同步检查](docs/installation-check.md)。同步时保留备份，并同时更新 `SKILL.md` 与其 `references/`，避免主文档链接到旧版或缺失参考。Skill 在后续轮次可被发现；若 MCP 工具列表尚未刷新，重启服务或 Codex 后新建聊天。可用 `$thermal-calculation-agent` 指定技能。项目目录是安装后的运行源，移动项目后应重新注册 MCP；本次 JSON 注册接口也需要重启原 MCP 进程才能生效。
 
 真实 stdio 集成回归见 `tests/test_mcp_stdio.py`，覆盖握手、工具发现、未授权计算拦截和确认后的完整计算。测试使用临时数据和自动化确认样例，不打开浏览器。
 
@@ -101,7 +103,7 @@ Skill 在后续轮次可被发现；若 MCP 工具列表尚未刷新，重启 Co
 
 自动排版根据当前流水线的真实依赖向右展开、分支向下排列，不依赖蒸汽场景的参数或步骤名称。输入与常量保持胶囊样式，拖拽位置仍会保存；“恢复默认排版”重新计算当前拓扑的位置。
 
-先确认场景拓扑，再核对参数并点击“确认参数并计算”。修改参数后清除旧结果；修改拓扑或相关全局算子后，需重新确认场景。未连接的引脚可以保存为草稿，但不能确认或计算。算子抽屉中的来源下拉用于重接引脚，新增常量会成为真实管道输入。前端不执行热工或经营计算。
+正常模式先由 Agent 记录人工场景确认，再核对参数、记录人工参数确认并调用计算工具；独立 `--debug` 模式通过按钮完成相同步骤。修改参数后清除旧结果；修改拓扑或相关全局算子后，需重新确认场景。未连接的引脚可以保存为草稿，但不能确认或计算。算子抽屉中的来源下拉用于重接引脚，新增常量会成为真实管道输入。前端不执行热工或经营计算。
 
 点击代数算子，在抽屉的“本次计算”中选择待求参数，其他参数自动成为已知量。保存后重新确认场景并填写新增输入；也可在来源下拉中连接其他节点结果。卡片显示当前求解方向的中文公式，原有代数编辑框仍使用英文变量标识。物性/查表算子保持单向计算。
 
@@ -127,6 +129,8 @@ AI 可先调用 `list_formulas` 查看 `variables` 中的中文含义、单位�
 
 MCP `register_new_formula(formula_definition=JSON对象, filename="中文计算含义_english_id.json", human_approved=True)` 和 `register_new_pipeline(pipeline_definition=JSON对象, pipeline_filename="scenario_id.json", human_approved=True)` 接受工具 schema 定义的结构化对象；`human_approved=True` 需要工程师明确审核，注册成功不替代会话确认。`list_formulas` 和 `list_scenarios` 的 `definition` 字段提供完整定义。代数定义包含 `formula_type="algebraic"`、`expression`、`inputs`、`outputs`；经验定义包含 `formula_type="empirical"` 及白名单 `handler`。管道在 `required_inputs` 中内联默认值和 `kind`，在 `steps` 中连接已有公式。文件新增后重启可自动发现；MCP 注册即时生效；不执行 Python 模板。
 
-新增代数算子必须提供 `id`、`name`、`equation`、`inputs` 和 `outputs`；每个引脚需明确 `name`、`description`、`unit`。表达式支持变量、有限数值和 `+ - * / **`，必须具有唯一正向输出；禁止导入、函数调用和属性访问。已有物性/查表算子的计算实现不能通过代数文本编辑。
+标准 JSON 代数定义使用 `id`、`name`、`category`、`formula_type="algebraic"`、`expression`、`inputs`、`outputs`。前端 `/api/operator/add` 保留 `equation` 字段，后端转换为标准 JSON；两类载荷不能混用。每个引脚明确 `name`、`description`、`unit`。表达式支持变量、有限数值和 `+ - * / **`，必须具有唯一正向输出；禁止导入、函数调用和属性访问。经验公式的引脚名称及单位必须匹配白名单 handler；已有物性/选型算子的计算实现不能通过代数文本编辑。
+
+会话接口沿用单数路径 `GET /api/session/{session_id}` 与 `POST /api/session/{session_id}/pipeline`。`match_or_propose_scenario` 的 `new_scenario_def` 仅用于当前会话提议；全局复用需通过注册工具保存，或手工保存审核后的 JSON 并重启。示例和字段边界见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)。
 
 压力输入统一采用 **MPa 绝压**；表压须由调用者依据现场大气压换算。带单位输入可使用 `{"value": 1.5, "unit": "MPa"}`，不同倍率单位需显式换算。范围和相态信息供工程师判断；饱和边界沿用干饱和蒸汽比焓，不通过温度、压力猜测湿蒸汽干度。
