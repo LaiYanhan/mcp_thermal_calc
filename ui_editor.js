@@ -807,9 +807,9 @@ function initializeEditor() {
   }, {passive: false});
   window.addEventListener("resize", scheduleWires);
   enqueue(syncFromBackend);
-  // 同步 AI 的阶段命令和计算结果；本地编辑期间不覆盖尚未提交的输入。
+  // 本地输入未预览时暂停刷新；显示预览后继续核对后台上下文，保留 pending。
   if (typeof setInterval !== "undefined") setInterval(() => {
-    if (busy || drag || drawerPipeline || Object.keys(pendingParameters).length ||
+    if (busy || drag || drawerPipeline || (Object.keys(pendingParameters).length && !previewCalculation) ||
         document.activeElement?.matches("input,select,textarea")) return;
     enqueue(syncFromBackend);
   }, 1000);

@@ -91,12 +91,14 @@ test('算子名称不作为 HTML 执行', () => {
 // 覆盖真实输入事件→确认按钮调用顺序，不依赖浏览器是否额外发出 change。
 function editorHarness(status = 200, search = '', stubSync = true) {
   const listeners = {}, requests = [], output = {textContent:'旧成果'};
+  let poll;
   const elements = {
     'canvas-container': {addEventListener:(name, callback)=>listeners[name]=callback, querySelectorAll:()=>[output]},
     'btn-main-action': {},
     'editor-message': {textContent:'',classList:{toggle(){}}},
   };
   const context = vm.createContext({console, URLSearchParams, setTimeout, clearTimeout, location: {search}});
+  context.setInterval = callback => { poll = callback; return 0; };
   vm.runInContext(readFileSync(require.resolve('../ui_editor.js'),'utf8'), context);
   context.document = {getElementById:id=>elements[id]};
   context.window = {addEventListener(){}};
@@ -108,7 +110,7 @@ function editorHarness(status = 200, search = '', stubSync = true) {
   vm.runInContext('syncFromBackend = async () => {};', context);
   vm.runInContext(`debugMode = true; sessionView = {current_state:'CALCULATED',inspected_parameters:{filled_inputs:{x:3}}}; activeStage = 2; initializeEditor();`,context);
   if (!stubSync) context.syncFromBackend = syncFromBackend;
-  return {context,listeners,requests,output,elements};
+  return {context,listeners,requests,output,elements,poll: () => poll()};
 }
 
 test('输入后直接确认使用新值，零值不被默认值覆盖', async () => {
@@ -264,6 +266,21 @@ test('后台正式状态变化后，轮询同步清除预览', async () => {
   assert.equal(h.elements['preview-notice'].hidden, true);
   assert.match(h.elements['node-layer'].innerHTML, /data-value="answer">6</);
   assert.equal(vm.runInContext('previewCalculation', h.context), null);
+});
+
+test('预览保留未保存参数时，仍轮询后台变化并清除过期预览', async () => {
+  const h = previewHarness();
+  h.listeners.input({target: {dataset: {parameter: 'x'}, value: '7'}});
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  const next = JSON.parse(vm.runInContext('JSON.stringify(sessionView)', h.context));
+  next.current_state = 'SCENARIO_PROPOSED';
+  next.editor_stage = 2;
+  h.context.fetch = async () => ({ok: true, json: async () => next});
+  h.poll();
+  await vm.runInContext('mutationQueue', h.context);
+  assert.equal(h.elements['preview-notice'].hidden, true);
+  assert.equal(vm.runInContext('previewCalculation', h.context), null);
+  assert.equal(vm.runInContext('pendingParameters.x', h.context), 7);
 });
 
 test('预览失败不调用会话同步或确认接口，也不留下旧预览', async () => {
