@@ -1,4 +1,4 @@
-/* 编辑器只维护图形与交互，工程数值全部来自后端会话。 */
+/* 编辑器只维护图形与交互，正式成果与临时预览的工程数值均由后端计算。 */
 "use strict";
 
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -132,6 +132,7 @@ let sessionView, selectedStepId = null, drawerPipeline = null, activeStage = 1;
 let insertionMode = "after", insertionAnchor = null, panX = 0, panY = 0, busy = false;
 let mutationQueue = Promise.resolve(), wireFrame = null, drag = null, highlightedNode = null;
 let pendingParameters = {};
+let previewCalculation = null;
 let debugMode = false, debugStageInitialized = false;
 const $ = id => document.getElementById(id);
 const urlParams = typeof location === "undefined" ? new URLSearchParams() : new URLSearchParams(location.search);
@@ -158,14 +159,31 @@ function showMessage(message = "") {
   $("editor-message").classList.toggle("hidden", !message);
 }
 
+function previewContext() {
+  const {layout, ...pipeline} = sessionView.pipeline || {};
+  return JSON.stringify({pipeline, parameters: {...sessionView.provided_parameters, ...pendingParameters},
+    formulas: sessionView.formulas, state: sessionView.current_state, official: sessionView.calculation_result});
+}
+
+function currentPreview() {
+  if (activeStage !== 2 || !previewCalculation) return null;
+  return previewCalculation.signature === previewContext() ? previewCalculation.result : null;
+}
+
+function updatePreviewControls() {
+  const button = $("btn-preview-calculation"), notice = $("preview-notice");
+  if (button) { button.hidden = activeStage !== 2; button.disabled = busy || !sessionView || needsScenario(); }
+  if (notice) notice.hidden = !currentPreview();
+}
+
 function enqueue(action) {
   mutationQueue = mutationQueue.then(async () => {
-    busy = true; $("btn-main-action").disabled = true;
+    busy = true; $("btn-main-action").disabled = true; updatePreviewControls();
     try { showMessage(); await action(); }
     catch (error) {
       try { await syncFromBackend(); } catch (_) { /* 保留原错误，不能把本地状态当成已保存。 */ }
       showMessage(error.message);
-    } finally { busy = false; $("btn-main-action").disabled = false; }
+    } finally { busy = false; $("btn-main-action").disabled = false; updatePreviewControls(); }
   });
   return mutationQueue;
 }
@@ -175,6 +193,7 @@ async function syncFromBackend() {
   const nextView = await api(sessionUrl + (query ? `?${query}` : ""));
   const changed = JSON.stringify(nextView) !== JSON.stringify(sessionView);
   sessionView = nextView;
+  if (previewCalculation && previewCalculation.signature !== previewContext()) previewCalculation = null;
   debugMode = sessionView.editor_debug === true;
   initialSessionLoad = false;
   if (query && queryParams.has("reset") && typeof history !== "undefined") {
@@ -236,6 +255,31 @@ function handlePrimaryAction() {
       await api(sessionUrl + "/calculate", {});
     }
     await syncFromBackend();
+  });
+}
+
+function handlePreviewCalculation() {
+  if (activeStage !== 2 || !sessionView || needsScenario()) return;
+  return enqueue(async () => {
+    previewCalculation = null;
+    renderGraph();
+    const signature = previewContext();
+    try {
+      const data = await api("/api/preview_calculation", {
+        pipeline: clone(sessionView.pipeline), parameters: {...sessionView.provided_parameters, ...pendingParameters},
+      });
+      if (signature !== previewContext()) {
+        showMessage("参数或场景已变化，请重新预览计算。");
+        return;
+      }
+      previewCalculation = {signature, result: data.preview_result};
+      renderGraph();
+    } catch (error) {
+      // 预览失败只清理页面临时结果，不调用会话同步、保存或确认接口。
+      previewCalculation = null;
+      renderGraph();
+      showMessage("预览失败：" + error.message);
+    }
   });
 }
 
@@ -368,8 +412,9 @@ function computePlan2Layout(pipeline, sizes = {}) {
 }
 
 function renderGraph() {
-  const pipeline = sessionView.pipeline, calculation = sessionView.calculation_result;
-  const result = Object.keys(pendingParameters).length ? {} : {...calculation?.initial_inputs, ...calculation?.final_outputs};
+  const preview = currentPreview();
+  const pipeline = sessionView.pipeline, calculation = preview || sessionView.calculation_result;
+  const result = !preview && Object.keys(pendingParameters).length ? {} : {...calculation?.initial_inputs, ...calculation?.final_outputs};
   const parameters = sessionView.inspected_parameters.filled_inputs || {};
   const canEdit = activeStage === 2 && !needsScenario();
   const html = [];
@@ -420,6 +465,7 @@ function renderGraph() {
   $("stage-desc-hint").textContent = activeStage === 1 ? "流程拓扑审核" : "参数核对与计算结果";
   $("btn-main-action").textContent = needsScenario() ? "确认场景拓扑" : activeStage === 1 ? "核对参数" : "确认参数并计算";
   $("btn-main-action").hidden = !debugMode;
+  updatePreviewControls();
   positionToolbar(); scheduleWires();
 }
 
@@ -709,6 +755,8 @@ function initializeEditor() {
     const name = event.target.dataset.parameter;
     if (!name) return;
     pendingParameters[name] = event.target.value === "" ? null : Number(event.target.value);
+    previewCalculation = null;
+    updatePreviewControls();
     // 尚未提交的新参数也不能继续展示旧工况成果。
     for (const value of canvas.querySelectorAll("[data-value]")) value.textContent = "—";
   });

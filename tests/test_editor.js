@@ -89,7 +89,7 @@ test('算子名称不作为 HTML 执行', () => {
 });
 
 // 覆盖真实输入事件→确认按钮调用顺序，不依赖浏览器是否额外发出 change。
-function editorHarness(status = 200, search = '') {
+function editorHarness(status = 200, search = '', stubSync = true) {
   const listeners = {}, requests = [], output = {textContent:'旧成果'};
   const elements = {
     'canvas-container': {addEventListener:(name, callback)=>listeners[name]=callback, querySelectorAll:()=>[output]},
@@ -104,7 +104,10 @@ function editorHarness(status = 200, search = '') {
     requests.push({url,body:options.body && JSON.parse(options.body)});
     return {ok:status===200,status,json:async()=>status===200 ? {is_complete:true} : {error:'测试接口拒绝'}};
   };
-  vm.runInContext(`syncFromBackend = async () => {}; debugMode = true; sessionView = {current_state:'CALCULATED',inspected_parameters:{filled_inputs:{x:3}}}; activeStage = 2; initializeEditor();`,context);
+  const syncFromBackend = vm.runInContext('syncFromBackend', context);
+  vm.runInContext('syncFromBackend = async () => {};', context);
+  vm.runInContext(`debugMode = true; sessionView = {current_state:'CALCULATED',inspected_parameters:{filled_inputs:{x:3}}}; activeStage = 2; initializeEditor();`,context);
+  if (!stubSync) context.syncFromBackend = syncFromBackend;
   return {context,listeners,requests,output,elements};
 }
 
@@ -188,6 +191,110 @@ function layoutFor(pipeline, sizes = {}) {
   vm.runInContext(readFileSync(require.resolve('../ui_editor.js'), 'utf8'), context);
   return JSON.parse(vm.runInContext('JSON.stringify(computePlan2Layout(pipeline, sizes))', context));
 }
+
+function previewHarness() {
+  const h = editorHarness(200, '', false);
+  for (const id of ['btn-preview-calculation', 'preview-notice', 'tab-stage-1', 'tab-stage-2',
+    'stage-desc-hint', 'node-floating-toolbar', 'dag-workspace']) {
+    h.elements[id] = {style: {}, classList: {toggle() {}}};
+  }
+  h.elements['node-layer'] = {innerHTML: '', children: []};
+  h.context.requestAnimationFrame = () => 0;
+  h.context.cancelAnimationFrame = () => {};
+  vm.runInContext(`debugMode = false; activeStage = 2; sessionView = {
+    current_state: 'PARAMETERS_INSPECTED', calculation_result: null,
+    inspected_parameters: {filled_inputs: {x: 3}}, provided_parameters: {x: 3},
+    pipeline: {id: 'preview', required_inputs: [{name: 'x', unit: 'MW', description: '输入'}],
+      steps: [{step_id: 'double', formula_id: 'double', input_map: {x: 'x'}, output_map: {y: 'answer'}}]},
+    formulas: [{id: 'double', name: '翻倍', inputs: [{name: 'x', unit: 'MW'}],
+      outputs: [{name: 'y', unit: 'MW'}]}]
+  };`, h.context);
+  h.context.fetch = async (url, options) => {
+    h.requests.push({url, body: JSON.parse(options.body)});
+    return {ok: true, json: async () => ({preview_result: {initial_inputs: {x: 7}, final_outputs: {answer: 14}}})};
+  };
+  return h;
+}
+
+test('阶段02普通模式可预览未提交参数，不确认、不保存、不改变正式成果', async () => {
+  const h = previewHarness();
+  const before = vm.runInContext('JSON.stringify(sessionView)', h.context);
+  h.listeners.input({target: {dataset: {parameter: 'x'}, value: '7'}});
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  assert.deepEqual(h.requests.map(item => item.url), ['/api/preview_calculation']);
+  assert.deepEqual(h.requests[0].body.parameters, {x: 7});
+  assert.equal(vm.runInContext('pendingParameters.x', h.context), 7);
+  assert.equal(vm.runInContext('JSON.stringify(sessionView)', h.context), before);
+  assert.match(h.elements['node-layer'].innerHTML, /data-value="answer">14</);
+  assert.equal(h.elements['preview-notice'].hidden, false);
+});
+
+test('阶段01隐藏预览，切到阶段02才显示，未确认场景不能预览', async () => {
+  const h = previewHarness();
+  vm.runInContext('activeStage = 1; renderGraph()', h.context);
+  assert.equal(h.elements['btn-preview-calculation'].hidden, true);
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  assert.equal(h.requests.length, 0);
+  vm.runInContext('activeStage = 2; renderGraph()', h.context);
+  assert.equal(h.elements['btn-preview-calculation'].hidden, false);
+  assert.equal(h.elements['btn-main-action'].hidden, true);
+  vm.runInContext("sessionView.current_state = 'SCENARIO_PROPOSED'; renderGraph()", h.context);
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  assert.equal(h.elements['btn-preview-calculation'].disabled, true);
+  assert.equal(h.requests.length, 0);
+});
+
+test('编辑参数立即隐藏旧预览标注和数值', async () => {
+  const h = previewHarness();
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  h.listeners.input({target: {dataset: {parameter: 'x'}, value: '8'}});
+  assert.equal(h.elements['preview-notice'].hidden, true);
+  assert.equal(h.output.textContent, '—');
+});
+
+test('后台正式状态变化后，轮询同步清除预览', async () => {
+  const h = previewHarness();
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  const next = JSON.parse(vm.runInContext('JSON.stringify(sessionView)', h.context));
+  next.current_state = 'CALCULATED';
+  next.calculation_result = {initial_inputs: {x: 3}, final_outputs: {answer: 6}};
+  next.editor_stage = 2;
+  h.context.fetch = async () => ({ok: true, json: async () => next});
+  await vm.runInContext('syncFromBackend()', h.context);
+  assert.equal(h.elements['preview-notice'].hidden, true);
+  assert.match(h.elements['node-layer'].innerHTML, /data-value="answer">6</);
+  assert.equal(vm.runInContext('previewCalculation', h.context), null);
+});
+
+test('预览失败不调用会话同步或确认接口，也不留下旧预览', async () => {
+  const h = previewHarness();
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  const before = vm.runInContext('JSON.stringify(sessionView)', h.context);
+  h.context.fetch = async (url, options) => {
+    h.requests.push({url, body: JSON.parse(options.body)});
+    return {ok: false, status: 400, json: async () => ({error: '缺少已知量'})};
+  };
+  await vm.runInContext('handlePreviewCalculation()', h.context);
+  assert.deepEqual(h.requests.map(item => item.url), ['/api/preview_calculation', '/api/preview_calculation']);
+  assert.equal(vm.runInContext('JSON.stringify(sessionView)', h.context), before);
+  assert.equal(h.elements['preview-notice'].hidden, true);
+  assert.match(h.elements['editor-message'].textContent, /缺少已知量/);
+});
+
+test('预览请求期间参数变化时，不展示过期返回值', async () => {
+  const h = previewHarness();
+  let release;
+  h.context.fetch = () => new Promise(resolve => { release = resolve; });
+  const preview = vm.runInContext('handlePreviewCalculation()', h.context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.elements['btn-preview-calculation'].disabled, true);
+  h.listeners.input({target: {dataset: {parameter: 'x'}, value: '8'}});
+  release({ok: true, json: async () => ({preview_result: {initial_inputs: {x: 3}, final_outputs: {answer: 6}}})});
+  await preview;
+  assert.equal(h.elements['preview-notice'].hidden, true);
+  assert.match(h.elements['editor-message'].textContent, /已变化/);
+  assert.doesNotMatch(h.elements['node-layer'].innerHTML, /data-value="answer">6</);
+});
 
 test('陌生场景仅布局实际节点，首个算子位于初始视口内', () => {
   const layout = layoutFor({required_inputs: [{name: 'quantity'}], steps: [

@@ -174,9 +174,11 @@
       <button onclick="openAddOperatorModal()" class="px-3 py-1.5 text-xs font-bold border border-slate-300 bg-white rounded">+ 新增算子</button>
       <button onclick="openAddConstantModal()" class="px-3 py-1.5 text-xs font-bold border border-amber-300 bg-amber-50 text-amber-900 rounded">+ 新增常量</button>
       <button onclick="resetLayoutPositions()" class="px-3 py-1.5 text-xs text-slate-600 font-bold">恢复默认排版</button>
+      <button id="btn-preview-calculation" type="button" hidden onpointerdown="event.preventDefault()" onclick="handlePreviewCalculation()" class="px-4 py-1.5 text-xs font-bold border border-blue-300 bg-blue-50 text-blue-900 rounded disabled:opacity-50">预览计算</button>
       <button id="btn-main-action" onclick="handlePrimaryAction()" class="px-5 py-1.5 text-xs font-black bg-paper-yellow text-black border border-black shadow-[2px_2px_0px_#0F172A]">确认场景拓扑</button>
     </div>
   </header>
+  <div id="preview-notice" role="status" hidden class="px-6 py-2 text-xs font-bold bg-blue-50 text-blue-900 border-b border-blue-200">当前为预览结果，仅供参数核对；请经人工确认后进行正式计算。</div>
   <div id="editor-message" role="alert" class="hidden px-6 py-2 text-xs font-bold bg-red-50 text-red-800 border-b border-red-200"></div>
   <div class="flex-1 flex overflow-hidden relative">
     <main id="canvas-container" class="flex-1 overflow-hidden bg-paper-grid relative canvas-panning">

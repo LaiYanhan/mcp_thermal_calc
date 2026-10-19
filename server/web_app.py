@@ -15,7 +15,8 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 import core.catalog
 from core.formula import default_formula_registry
-from core.pipeline import PipelineValidationError, pipeline_registry
+from core.pipeline import Pipeline, PipelineValidationError, pipeline_registry
+from core.definitions import PipelineDefinition
 from core.state_machine import workflow_manager, StateTransitionError
 from core.storage import engine_lock
 
@@ -125,6 +126,19 @@ async def calculate_endpoint(request):
 
 
 @api_endpoint
+async def preview_calculation_endpoint(request):
+    """计算页面快照；不读取、确认或写回任何正式会话。"""
+    body = await request_body(request)
+    if set(body) != {"pipeline", "parameters"} or not isinstance(body["parameters"], dict):
+        raise ValueError("预览需要 pipeline 对象和 parameters 对象")
+    with engine_lock:
+        definition = PipelineDefinition.model_validate(body["pipeline"])
+        pipeline = Pipeline.from_dict(definition.model_dump())
+        result = pipeline.execute(body["parameters"])
+    return JSONResponse({"preview_result": result.model_dump(mode="json")}, headers={"Cache-Control": "no-store"})
+
+
+@api_endpoint
 async def list_formulas_endpoint(request):
     return JSONResponse({"formulas": default_formula_registry.to_ai_catalog()})
 
@@ -159,6 +173,7 @@ routes = [
     Route("/api/session/{session_id}/parameters", update_parameters_endpoint, methods=["POST"]),
     Route("/api/session/{session_id}/confirm_parameters", confirm_parameters_endpoint, methods=["POST"]),
     Route("/api/session/{session_id}/calculate", calculate_endpoint, methods=["POST"]),
+    Route("/api/preview_calculation", preview_calculation_endpoint, methods=["POST"]),
     Route("/api/formulas", list_formulas_endpoint),
     Route("/api/operator/update", update_operator_endpoint, methods=["POST"]),
     Route("/api/operator/add", add_operator_endpoint, methods=["POST"]),
