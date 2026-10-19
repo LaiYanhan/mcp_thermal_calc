@@ -4,9 +4,9 @@ import json
 import sys
 import webbrowser
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional
 from urllib.parse import urlencode
-from pydantic import StrictBool
+from pydantic import Field, StrictBool
 
 # 兼容 README 中直接执行 server/mcp_server.py 的启动方式。
 if __package__ in (None, ""):
@@ -21,6 +21,7 @@ from core.extensions import parse_definition
 from core.assets import validate_filename
 from core.definitions import FormulaDefinition, PipelineDefinition
 from server.web_app import ensure_web_server_running
+from server.editor_backend import cleanup_editor_listener, editor_backend, WEB_SERVER_PORT
 
 mcp_server = MCPServer("thermal-calc-sizing-engine")
 
@@ -40,6 +41,17 @@ def editor_link(session_id, stage):
     workflow_manager.set_editor_stage(session_id, stage)
     base = ensure_web_server_running()
     return base + "/editor?" + urlencode({"session_id": session_id, "stage": stage})
+
+
+@mcp_server.tool()
+def cleanup_editor_backend(port: Annotated[int, Field(strict=True, ge=1, le=65535)] = WEB_SERVER_PORT) -> str:
+    """每次使用 Skill 开始前及完成后释放编辑器端口。只关闭已验证归属本项目的 Web 监听，
+    保留 MCP 连接、场景、参数和成果；无法核对的占用进程不终止。READY 表示端口已释放。
+    """
+    try:
+        return response(cleanup_editor_listener(port=port))
+    except (RuntimeError, OSError, ValueError) as error:
+        return response({"error": str(error), "port": port})
 
 
 @mcp_server.tool()
@@ -166,7 +178,10 @@ def open_pipeline_editor(session_id: str = "default_session", stage: int = 1) ->
 
 
 def run_server():
-    mcp_server.run(transport="stdio")
+    try:
+        mcp_server.run(transport="stdio")
+    finally:
+        editor_backend.stop()
 
 
 if __name__ == "__main__":

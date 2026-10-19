@@ -40,7 +40,8 @@
 │   └── pipeline_editor_preview.html # 正式编辑器页面，由服务直接读取，无重定向
 ├── ui_editor.js              # 编辑器渲染与交互脚本
 ├── server/                   # MCP 服务端接口层
-│   └── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 11 个工程与工作流工具
+│   ├── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 12 个工程与工作流工具
+│   └── editor_backend.py    # 编辑器监听归属、启动、清理与退出
 ├── skills/                   # 智能体交互技能说明书
 │   └── thermal-calculation-agent/ # SKILL.md 与按需阅读的 references/JSON 示例
 └── tests/                    # 单元与回归测试套件
@@ -109,6 +110,8 @@ HTML 源文件统一位于 `preview/pipeline_editor_preview.html`，原根目录
 预览使用独立的 `POST /api/preview_calculation`，请求为 `{pipeline, parameters}` 页面快照，响应为 `preview_result`；接口不读取或写入会话，也不作为 MCP 工具暴露。正式计算仍使用原有受状态守卫保护的接口。边界说明见 [ADR-0015](docs/adr/0015-ephemeral-editor-calculation-preview.md)。
 
 从 MCP 打开编辑器时，由 MCP 进程启动同一份 Web 服务；此时不用另开 `run_web.py`。编辑器仅监听本机，浏览器写入必须同源。
+
+每轮使用 Skill 时，Agent 首先调用 `cleanup_editor_backend()`，核对并释放默认 8765 端口，报告整理完成后再次调用以结束 Web 监听。MCP 长连接、会话、参数与成果继续保留；需要再次查看时，`open_pipeline_editor` 自动启动编辑器。等待人工确认和同一轮中的阶段切换不重复初始化。独立 `run_web.py` 也登记监听归属，可由相同工具优雅关闭；其他端口传入 `port`。归属记录位于数据目录的 `editor-backends/`，退出凭证不经页面公开；身份不匹配或无归属记录的监听不会被终止。旧版进程须先重启才能使用这套清理协议，不按端口直接结束 MCP 或其他程序。MCP 连接正常关闭时也会释放自身 Web 监听，见 [ADR-0018](docs/adr/0018-editor-backend-lifecycle.md)。
 
 独立调试可用 `run_web.py --list` 查看流水线，或用 `run_web.py --pipeline <ID或JSON路径> --reset` 从 JSON 定义重新打开。场景选择与重置仅用于页面首次加载；成功后会移除地址中的 `reset`，后续保存、确认、计算和刷新继续使用当前会话。
 

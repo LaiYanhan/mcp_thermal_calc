@@ -42,7 +42,7 @@ def test_stdio_workflow(tmp_path):
                         "confirm_scenario", "inspect_and_validate_parameters",
                         "confirm_parameters", "execute_calculation", "solve_atomic_formula",
                         "register_new_formula", "register_new_pipeline",
-                        "open_pipeline_editor"} <= names
+                        "open_pipeline_editor", "cleanup_editor_backend"} <= names
                 formula_schema = next(tool.input_schema for tool in catalog.tools if tool.name == "register_new_formula")
                 assert "formula_definition" in formula_schema["properties"]
                 assert "formula_code" not in formula_schema["properties"]

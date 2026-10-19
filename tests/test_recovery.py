@@ -380,7 +380,7 @@ def test_mcp_stdio_entry_initializes_and_blocks_unapproved_calculation(tmp_path)
                     initialized = await session.initialize()
                     assert initialized.server_info.name == "thermal-calc-sizing-engine"
                     catalog = await session.list_tools()
-                    assert len(catalog.tools) == 11
+                    assert len(catalog.tools) == 12
                     result = await session.call_tool("execute_calculation", {"session_id": "unapproved"})
                     assert json.loads(result.content[0].text)["security_block"] is True
                     invalid = await session.call_tool("confirm_scenario", {"session_id": "unapproved", "confirmed": 1})

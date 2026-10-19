@@ -13,8 +13,8 @@ uv pip check --python .venv/Scripts/python.exe
 ```
 
 - 依赖兼容性检查应通过；完整测试包含 Node.js 前端行为回归和真实 MCP stdio 子进程测试。
-- 默认资产目录应能发现 2 个场景、25 个原子公式；添加自定义 JSON 后，以实际目录结果为准。
-- `tests/test_mcp_stdio.py` 验证 11 个 MCP 工具、JSON 注册、目录发现、未授权计算拦截及确认后的完整计算，测试使用隔离资产和数据目录。
+- 默认资产目录应能发现 2 个场景、37 个原子公式；添加自定义 JSON 后，以实际目录结果为准。
+- MCP 提供 12 个工具，包含 `cleanup_editor_backend`；真实 stdio 回归验证工具发现、JSON 注册、目录、人工确认守卫和编辑器生命周期，测试使用隔离资产和数据目录。
 - MCP 应使用项目虚拟环境的 Python 启动 `server/mcp_server.py`；通过当前项目位置生成启动路径，使用 `PYTHONUTF8=1` 和 `PYTHONIOENCODING=utf-8` 处理中文协议。
 
 ## Skill 与工具接口检查
@@ -24,6 +24,8 @@ uv pip check --python .venv/Scripts/python.exe
 同步主文档和参考文件后，检查链接完整、文件内容一致。保留原 Skill 的工程红线、状态机图、六步详细流程、确认话术、参数表格、报告清单和注意事项；架构调整只修改相关技术部分。
 
 更新后需重启旧 MCP 进程。若客户端工具缓存未刷新，再重启客户端并新建聊天。检查注册工具参数为 `formula_definition`、`pipeline_definition`，停用旧 `formula_code`、`pipeline_code` 和 `sub_category`。注册成功不授予计算权限；场景及参数仍须分别确认。
+
+检查工具列表包含 `cleanup_editor_backend`。Skill 在每轮开始及报告整理完成后调用该工具，释放 Web 端口并保留 MCP 连接和工程数据。旧版监听未实现退出协议，首次更新需先重启旧 MCP；已有独立 Web 也需关闭后使用新版重新启动。后续清理只处理同项目、同实例身份可验证的监听，端口被其他程序占用时会报告冲突。`tests/test_editor_backend.py` 使用真实子进程验证清理、重开、MCP 连接保留和未知服务保护。
 
 ## 已安装 Skill 的同步
 

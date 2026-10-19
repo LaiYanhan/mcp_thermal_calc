@@ -1,11 +1,7 @@
 """本地 Starlette 编辑器接口；校验和计算由 core 统一处理。"""
 
-import threading
-import socket
 from functools import wraps
 from pathlib import Path
-from typing import Optional
-import uvicorn
 from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -19,11 +15,9 @@ from core.pipeline import Pipeline, PipelineValidationError, pipeline_registry
 from core.definitions import PipelineDefinition
 from core.state_machine import workflow_manager, StateTransitionError
 from core.storage import engine_lock
+from server.editor_backend import editor_backend, WEB_SERVER_HOST, WEB_SERVER_PORT
 
-WEB_SERVER_HOST = "127.0.0.1"
-WEB_SERVER_PORT = 8765
 ROOT = Path(__file__).resolve().parents[1]
-_server_thread: Optional[threading.Thread] = None
 
 
 def api_endpoint(function):
@@ -65,6 +59,17 @@ class LocalEditorMiddleware:
 
 async def index_endpoint(request):
     return HTMLResponse((ROOT / "preview" / "pipeline_editor_preview.html").read_text(encoding="utf-8"))
+
+
+async def backend_identity_endpoint(request):
+    identity = editor_backend.public_identity()
+    return JSONResponse(identity or {}, status_code=200 if identity else 503, headers={"Cache-Control": "no-store"})
+
+
+async def shutdown_backend_endpoint(request):
+    if not editor_backend.request_shutdown(request.headers.get("x-thermal-editor-token", "")):
+        return JSONResponse({"error": "编辑器退出凭证不匹配"}, status_code=403)
+    return JSONResponse({"status": "STOPPING"}, status_code=202)
 
 
 async def editor_script_endpoint(request):
@@ -164,6 +169,8 @@ async def add_operator_endpoint(request):
 
 
 routes = [
+    Route("/api/editor-backend", backend_identity_endpoint),
+    Route("/api/editor-backend/shutdown", shutdown_backend_endpoint, methods=["POST"]),
     Route("/", index_endpoint),
     Route("/editor", index_endpoint),
     Route("/ui_editor.js", editor_script_endpoint),
@@ -186,18 +193,4 @@ app = Starlette(debug=False, routes=routes, middleware=[
 
 
 def ensure_web_server_running(host: str = WEB_SERVER_HOST, port: int = WEB_SERVER_PORT) -> str:
-    global _server_thread
-    if _server_thread is not None and _server_thread.is_alive():
-        return f"http://{host}:{port}"
-    # 先占用监听套接字，避免把其他进程的同端口编辑器误认成本会话。
-    sock = socket.socket()
-    try:
-        sock.bind((host, port))
-        sock.listen(128)
-    except OSError:
-        sock.close()
-        raise RuntimeError(f"编辑器端口 {port} 已被占用，请先关闭独立 Web 服务再从 MCP 打开")
-    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
-    _server_thread = threading.Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
-    _server_thread.start()
-    return f"http://{host}:{port}"
+    return editor_backend.start(app, host, port)

@@ -25,10 +25,10 @@ import sys
 import threading
 import time
 import webbrowser
-import uvicorn
 import core.catalog  # noqa: F401
 from core.pipeline import pipeline_registry
 from server.web_app import app, WEB_SERVER_HOST, WEB_SERVER_PORT
+from server.editor_backend import editor_backend, editor_base_url
 
 
 def parse_args():
@@ -136,7 +136,7 @@ def main():
 
     session_id = args.session_id or f"debug_{pipeline.id}"
     reset_query = "&reset=1" if args.reset else ""
-    editor_url = f"http://{args.host}:{args.port}/editor?session_id={session_id}&pipeline={pipeline.id}&stage={args.stage}{reset_query}"
+    editor_url = editor_base_url(args.host, args.port) + f"/editor?session_id={session_id}&pipeline={pipeline.id}&stage={args.stage}{reset_query}"
 
     if not args.no_browser:
         threading.Thread(target=open_browser, args=(editor_url,), daemon=True).start()
@@ -149,12 +149,12 @@ def main():
     print(f" 阶段控制: {'前端调试（--debug）' if args.debug else 'AI / MCP'}")
     if args.reset:
         print(" 会话模式: 已启用 --reset，将强制丢弃历史草稿并重新初始化")
-    print(f" 服务地址: http://{args.host}:{args.port}")
+    print(f" 服务地址: {editor_base_url(args.host, args.port)}")
     print(f" 直达链接: {editor_url}")
     print(" 按 Ctrl+C 可随时停止服务")
     print("=" * 60)
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    editor_backend.serve(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

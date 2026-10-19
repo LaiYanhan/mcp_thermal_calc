@@ -46,7 +46,7 @@ def test_debug_flag_is_server_controlled_and_required_for_stage_option(monkeypat
         run_web.parse_args()
     assert error.value.code == 2
     monkeypatch.setattr(sys, "argv", ["run_web.py", "--debug", "--stage", "2", "--no-browser"])
-    monkeypatch.setattr(run_web.uvicorn, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run_web.editor_backend, "serve", lambda *args, **kwargs: None)
     run_web.main()
     assert client.get("/api/session/with_debug").json()["editor_debug"] is True
 
