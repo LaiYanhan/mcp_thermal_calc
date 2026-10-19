@@ -1,0 +1,211 @@
+{
+  "id": "molten_salt_profiles",
+  "description": "原熔盐资料及物性关联式；按原始资料迁移，未经重新标定",
+  "default_profile": "HITEC",
+  "profiles": [
+    {
+      "name": "HITEC熔盐",
+      "alias": "HITEC",
+      "composition": "53% KNO3 + 40% NaNO2 + 7% NaNO3",
+      "min_temp_c": 170.0,
+      "max_temp_c": 410.0,
+      "default_hot_temp": 390.0,
+      "default_cold_temp": 190.0,
+      "aliases": [
+        "HITEC",
+        "HITEC熔盐"
+      ],
+      "temperature_unit": "℃",
+      "data_tables": [
+        {
+          "id": "hitec_density",
+          "description": "HITEC熔盐密度；原式：0.0003602 * temp_c ** 2 - 0.9721 * temp_c + 2115.0",
+          "input_unit": "℃",
+          "output_unit": "kg/m3",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 0.0003602,
+              "power": 2
+            },
+            {
+              "coefficient": -0.9721,
+              "power": 1
+            },
+            {
+              "coefficient": 2115,
+              "power": 0
+            }
+          ],
+          "divisor": 1
+        },
+        {
+          "id": "hitec_thermal_conductivity",
+          "description": "HITEC熔盐导热系数；原式：3.283e-09 * temp_c ** 3 - 4.02e-06 * temp_c ** 2 + 0.00104 * temp_c + 0.3015",
+          "input_unit": "℃",
+          "output_unit": "kcal/(m·h·℃)",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 3.283e-09,
+              "power": 3
+            },
+            {
+              "coefficient": -4.02e-06,
+              "power": 2
+            },
+            {
+              "coefficient": 0.00104,
+              "power": 1
+            },
+            {
+              "coefficient": 0.3015,
+              "power": 0
+            }
+          ],
+          "divisor": 1
+        },
+        {
+          "id": "hitec_viscosity",
+          "description": "HITEC熔盐粘度；原式：57710000.0 * temp_c ** (-3.001) + 0.9426",
+          "input_unit": "℃",
+          "output_unit": "(kg·s)/m2",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 57710000.0,
+              "power": -3.001
+            },
+            {
+              "coefficient": 0.9426,
+              "power": 0
+            }
+          ],
+          "divisor": 1
+        },
+        {
+          "id": "hitec_specific_heat",
+          "description": "HITEC熔盐比热容；原式：1.42",
+          "input_unit": "℃",
+          "output_unit": "kJ/(kg·℃)",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 1.42,
+              "power": 0
+            }
+          ],
+          "divisor": 1
+        }
+      ],
+      "formulas": {
+        "density": "properties.hitec_density",
+        "thermal_conductivity": "properties.hitec_thermal_conductivity",
+        "viscosity": "properties.hitec_viscosity",
+        "specific_heat": "properties.hitec_specific_heat"
+      }
+    },
+    {
+      "name": "太阳盐",
+      "alias": "SOLAR_SALT",
+      "composition": "60% NaNO3 + 40% KNO3",
+      "min_temp_c": 290.0,
+      "max_temp_c": 565.0,
+      "default_hot_temp": 565.0,
+      "default_cold_temp": 290.0,
+      "aliases": [
+        "SOLAR_SALT",
+        "太阳盐"
+      ],
+      "temperature_unit": "℃",
+      "data_tables": [
+        {
+          "id": "solar_salt_density",
+          "description": "太阳盐密度；原式：2090.0 - 0.636 * temp_c",
+          "input_unit": "℃",
+          "output_unit": "kg/m3",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 2090,
+              "power": 0
+            },
+            {
+              "coefficient": -0.636,
+              "power": 1
+            }
+          ],
+          "divisor": 1
+        },
+        {
+          "id": "solar_salt_thermal_conductivity",
+          "description": "太阳盐导热系数；原式：0.443 + 0.00019 * temp_c",
+          "input_unit": "℃",
+          "output_unit": "kcal/(m·h·℃)",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 0.443,
+              "power": 0
+            },
+            {
+              "coefficient": 0.00019,
+              "power": 1
+            }
+          ],
+          "divisor": 1
+        },
+        {
+          "id": "solar_salt_viscosity",
+          "description": "太阳盐粘度；原式：22.714 - 0.12 * temp_c + 0.0002281 * temp_c ** 2 - 1.474e-07 * temp_c ** 3",
+          "input_unit": "℃",
+          "output_unit": "(kg·s)/m2",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 22.714,
+              "power": 0
+            },
+            {
+              "coefficient": -0.12,
+              "power": 1
+            },
+            {
+              "coefficient": 0.0002281,
+              "power": 2
+            },
+            {
+              "coefficient": -1.474e-07,
+              "power": 3
+            }
+          ],
+          "divisor": 1
+        },
+        {
+          "id": "solar_salt_specific_heat",
+          "description": "太阳盐比热容；原式：(1443.0 + 0.172 * temp_c) / 1000.0",
+          "input_unit": "℃",
+          "output_unit": "kJ/(kg·℃)",
+          "rule_type": "correlation",
+          "terms": [
+            {
+              "coefficient": 1443,
+              "power": 0
+            },
+            {
+              "coefficient": 0.172,
+              "power": 1
+            }
+          ],
+          "divisor": 1000
+        }
+      ],
+      "formulas": {
+        "density": "properties.solar_salt_density",
+        "thermal_conductivity": "properties.solar_salt_thermal_conductivity",
+        "viscosity": "properties.solar_salt_viscosity",
+        "specific_heat": "properties.solar_salt_specific_heat"
+      }
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # Handoff: JSON 配置重构 (Pure JSON Declarative Formulas & Pipelines)
 
+后续更新：工程常量、设备规则与熔盐资料已全部迁入 JSON，原 `constants/` Python 模块及设备专用 handler 已删除；当前为 37 个公式、2 个场景。运行与旧场景迁移边界见 [ADR-0017](docs/adr/0017-all-engineering-data-in-json.md) 和 [JSON 参考](skills/thermal-calculation-agent/references/json-definitions.md)。下文保留此前 JSON 架构重构的交接记录。
+
 ## 1. 目标与背景 (Context & Goal)
 本项目已从原先的“通过修改 Python 代码和模板支持扩展”重构为“通过纯 JSON 配置原子公式、输入输出变量及计算管道（DAG）”。
 所有方案已经过多轮技术推演（Grilling）与领域建模（Domain Modeling）严格对齐，重构规范已在 `.scratch/` 中就绪。

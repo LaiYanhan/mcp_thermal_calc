@@ -280,7 +280,11 @@ def test_invalid_table_order_is_rejected_by_mcp(rule_type, rule):
                            pipeline_filename="test_engineering_data.json", human_approved=True)
 
 
-def test_real_stdio_exposes_data_schema_and_executes_proposed_table_scene(tmp_path):
+@pytest.mark.parametrize("rule,rule_data,expected", [
+    ("discrete", {"levels": [1, 4, 9], "mode": "nearest"}, 4),
+    ("correlation", {"terms": [{"coefficient": 2, "power": 1}], "divisor": 1}, 5),
+])
+def test_real_stdio_exposes_data_schema_and_executes_proposed_table_scene(tmp_path, rule, rule_data, expected):
     from mcp import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -306,7 +310,7 @@ def test_real_stdio_exposes_data_schema_and_executes_proposed_table_scene(tmp_pa
                     assert not result.is_error, result
                     return json.loads(next(c.text for c in result.content if c.type == "text"))
 
-                formula, pipeline = definitions("discrete", unit="t", levels=[1, 4, 9], mode="nearest")
+                formula, pipeline = definitions(rule, unit="t", **rule_data)
                 result = await wire_call("register_new_formula", formula_definition=formula,
                                          filename="通用数据_engineering_data.json", human_approved=True)
                 assert result["status"] == "SUCCESS", result
@@ -314,11 +318,12 @@ def test_real_stdio_exposes_data_schema_and_executes_proposed_table_scene(tmp_pa
                 proposed = await wire_call("match_or_propose_scenario", session_id="wire-data",
                                            user_requirements="自动化确认样例", new_scenario_def=pipeline)
                 assert proposed["status"] == "SCENARIO_PROPOSED", proposed
-                assert proposed["scenario"]["data_tables"][0]["levels"] == [1, 4, 9]
+                for key, value in rule_data.items():
+                    assert proposed["scenario"]["data_tables"][0][key] == value
                 await wire_call("confirm_scenario", session_id="wire-data", confirmed=True)
                 await wire_call("inspect_and_validate_parameters", session_id="wire-data")
                 await wire_call("confirm_parameters", session_id="wire-data", confirmed=True)
                 result = await wire_call("execute_calculation", session_id="wire-data")
-                assert result["result"]["final_outputs"] == {"answer": 4}, result
+                assert result["result"]["final_outputs"] == {"answer": expected}, result
 
     asyncio.run(asyncio.wait_for(exercise(), timeout=60))

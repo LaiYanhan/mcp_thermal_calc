@@ -60,7 +60,7 @@
 
 ## 已注册经验 handler
 
-已有 handler 可复用为经验公式；例如文件 `SGS功率整定_doc_sgs_sizing.json`：
+已有通用 handler 可复用为经验公式；例如文件 `SGS功率整定_doc_sgs_sizing.json`：
 
 ```json
 {
@@ -68,18 +68,19 @@
   "name": "SGS功率规格整定",
   "category": "sizing",
   "formula_type": "empirical",
-  "handler": "sizing.sgs_power",
+  "handler": "data.fixed_step",
   "is_bidirectional": false,
   "inputs": [
-    {"name": "sgs_power", "unit": "MW", "description": "需求功率"}
+    {"name": "value", "unit": "MW", "description": "需求功率"}
   ],
   "outputs": [
-    {"name": "sgs_sizing_mw", "unit": "MW", "description": "规格功率"}
-  ]
+    {"name": "result", "unit": "MW", "description": "规格功率"}
+  ],
+  "data_inputs": [{"name": "table", "rule_type": "fixed_step", "input_unit": "MW", "output_unit": "MW"}]
 }
 ```
 
-handler 的引脚名称与单位由核心契约决定，不能仅更改 JSON 名称或倍率使其计算另一种量；可在管道映射中改用不同来源变量。经验公式保持正向，不设置反算 `solve_target`，不填写代数 `expression`。
+通用数据 handler 使用 `value` / `result` 数值引脚，单位由 JSON 数据端口声明并与所绑定表核对；IAPWS95 handler 仍使用自身固定引脚及单位。上述例子还须在场景中声明正数 `step`、整定方式及 `data_map` 绑定，完整形式见下文。经验公式保持正向，不设置反算 `solve_target`，不填写代数 `expression`。
 
 ## 场景内工程数据与通用取值
 
@@ -90,10 +91,11 @@ handler 的引脚名称与单位由核心契约决定，不能仅更改 JSON 名
 | `data.fixed_step` / `fixed_step` | 正数 `step`、`mode` | 以零为基准的固定步长整定 |
 | `data.discrete` / `discrete` | 严格递增且非空的 `levels`、`mode` | 从不等距档位中取值 |
 | `data.piecewise` / `piecewise` | 严格按 `threshold` 递增的非空 `rows` | 每行含 `threshold` 与 `value`，左闭右开；等于阈值进入该行所在的新段 |
+| `data.correlation` / `correlation` | 非空 `terms` 与非零 `divisor` | 每项含有限 `coefficient` 与 `power`；取各项幂次乘积之和再除以 `divisor`，省略除数使用数学恒等值 1 |
 
 `mode` 为 `ceil`（向上）、`floor`（向下）或 `nearest`（最近）。最近整定在中点采用半入规则：2.5 取 3，-2.5 取 -3；不等距档位距离相同时选绝对值较大者。离散档位和分段查表低于或高于输入范围时取首行或末行对应结果，不增加表外警告；分段输出可以非单调，首末按阈值顺序确定。固定步长没有表的首末边界。分段取值返回一个值，不进行分段累进、插值或反算。
 
-三种通用 handler 均使用数值输入 `value`、输出 `result` 及数据端口 `table`。公式 `data_inputs` 的 `rule_type` 须与 handler 及所绑定的表一致，`input_unit` / `output_unit` 须分别匹配数值输入、输出引脚。整定的输入输出单位必须相同量纲、相同倍率；分段查表可以使用不同的输入输出单位。
+四种通用 handler 均使用数值输入 `value`、输出 `result` 及数据端口 `table`。公式 `data_inputs` 的 `rule_type` 须与 handler 及所绑定的表一致，`input_unit` / `output_unit` 须分别匹配数值输入、输出引脚。整定的输入输出单位必须相同量纲、相同倍率；分段查表与关联式可以使用不同的输入输出单位。
 
 例如先审核并注册公式 `通用刻度整定_doc_quantization.json`：
 
@@ -138,7 +140,17 @@ handler 的引脚名称与单位由核心契约决定，不能仅更改 JSON 名
 
 离散档位使用 `rule_type="discrete"`、例如 `levels=[1, 4, 9]` 和所需 `mode`；同时将公式 handler 改为 `data.discrete`、数据端口规则改为 `discrete`。分段数据使用 `rule_type="piecewise"` 和例如 `rows=[{"threshold": 0, "value": 40}, {"threshold": 10, "value": 90}, {"threshold": 20, "value": 15}]`，公式对应 `data.piecewise` 与 `piecewise` 数据端口，不填写 `mode`。新增这些同类表不需要新增 Python handler；全新算法仍可开发新的白名单处理函数。
 
-旧 JSON 可以省略 `data_inputs`、`data_tables` 与 `data_map`，按空声明兼容。已有设备专用 handler 继续支持旧定义。表内容、绑定随保存、启动加载、目录和会话快照保留；其他场景的数据不会替换当前快照。手工改磁盘 JSON 后需重启，不自动热加载。通过原有会话接口修改表后必须重新确认；注册与提议不会授予正式计算权限，预览仍不保存正式成果。前端既有保存操作会保留表，本轮不提供整表编辑器；表计算只通过管道节点执行。
+不使用数据端口的 JSON 可以省略 `data_inputs`、`data_tables` 与 `data_map`，按空声明兼容。旧设备专用 handler 已删除；四个设备公式 ID 保留，数值引脚改为 `value` / `result`，旧自定义场景须同步调整映射并添加表绑定后重新确认。表内容、绑定随保存、启动加载、目录和会话快照保留；其他场景的数据不会替换当前快照。手工改磁盘 JSON 后需重启，不自动热加载。通过原有会话接口修改表后必须重新确认；注册与提议不会授予正式计算权限，预览仍不保存正式成果。前端既有保存操作会保留表，本轮不提供整表编辑器；表计算只通过管道节点执行。
+
+## 已迁移工程资料
+
+`constants/default_parameters.json` 保存原有 18 项基准参数的完整值和元数据；实际场景继续读取自身 `required_inputs`。`constants/equipment_catalog.json` 保存三种整定刻度、13 档变压器容量、三张阶梯造价表、两种方案功率因数和电气单位造价。`constants/molten_salt.json` 保存两种熔盐的组分、别名、温度资料及八个物性关联式表；其 `profiles[].formulas` 指向已有原子公式 ID。
+
+复用资料时，读取 JSON，将所需参数转换为场景 `required_inputs`（`value` 写为 `default_value`，单值常量标为 `kind="constant"`），所需表完整复制到 `data_tables`，再在节点中引用其 ID。不依赖 Python 常量模块，不要求公共登记，也不让资料文件的后续修改覆盖已有场景快照。资料保留原始温区与关联式，不表示重新验证了物性模型。
+
+关联式表的 `terms` 每项保存 `coefficient` 和 `power`，由 `data.correlation` 计算 `sum(coefficient * value ** power) / divisor`。幂次可以为负数或非整数；除零、负底数的非实数幂及非有限结果沿用实际计算错误，不增加替代模型或温区拦截。温度等输入单位由端口契约明确，不隐式换算。
+
+变压器档位表使用 MVA；有功功率 MW 先接入 `electrical.apparent_capacity`，将场景中声明的功率因数连接到 `power_factor`，再把产出的 MVA 接到 `sizing.transformer_sizing` 的 `value`。超过最高档位沿用通用首末边界，不再隐式按最大档位倍数组合；需要多台组合时另行明确建模。
 
 ## 反算、文件与校验
 

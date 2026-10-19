@@ -1,0 +1,10 @@
+{
+  "id": "cost.thermal_storage_unit_cost",
+  "name": "储热系统阶梯单位造价",
+  "category": "cost",
+  "formula_type": "empirical",
+  "handler": "data.piecewise",
+  "inputs": [{"name": "value", "unit": "t", "description": "熔盐质量"}],
+  "outputs": [{"name": "result", "unit": "万元/t", "description": "储热系统单位造价"}],
+  "data_inputs": [{"name": "table", "rule_type": "piecewise", "input_unit": "t", "output_unit": "万元/t"}]
+}

@@ -7,7 +7,7 @@
   "formula_type": "empirical",
   "inputs": [
     {
-      "name": "sgs_power",
+      "name": "value",
       "unit": "MW",
       "description": "SGS理论换热功率需求",
       "min_value": 0.1,
@@ -18,7 +18,7 @@
   ],
   "outputs": [
     {
-      "name": "sgs_sizing_mw",
+      "name": "result",
       "unit": "MW",
       "description": "SGS标准选型规格",
       "min_value": 5.0,
@@ -29,5 +29,13 @@
   ],
   "expression": null,
   "is_bidirectional": false,
-  "handler": "sizing.sgs_power"
+  "handler": "data.fixed_step",
+  "data_inputs": [
+    {
+      "name": "table",
+      "rule_type": "fixed_step",
+      "input_unit": "MW",
+      "output_unit": "MW"
+    }
+  ]
 }

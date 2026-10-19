@@ -7,7 +7,7 @@
   "formula_type": "empirical",
   "inputs": [
     {
-      "name": "salt_mass",
+      "name": "value",
       "unit": "t",
       "description": "理论熔盐装填量",
       "min_value": 1.0,
@@ -18,7 +18,7 @@
   ],
   "outputs": [
     {
-      "name": "salt_mass_tons",
+      "name": "result",
       "unit": "t",
       "description": "工程整定熔盐订购量",
       "min_value": 10.0,
@@ -29,5 +29,13 @@
   ],
   "expression": null,
   "is_bidirectional": false,
-  "handler": "sizing.salt_mass_roundup"
+  "handler": "data.fixed_step",
+  "data_inputs": [
+    {
+      "name": "table",
+      "rule_type": "fixed_step",
+      "input_unit": "t",
+      "output_unit": "t"
+    }
+  ]
 }

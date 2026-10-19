@@ -1,0 +1,30 @@
+{
+  "id": "properties.hitec_viscosity",
+  "name": "HITEC熔盐粘度",
+  "category": "properties",
+  "formula_type": "empirical",
+  "handler": "data.correlation",
+  "description": "由场景内JSON关联式系数求值，温区只作参考",
+  "inputs": [
+    {
+      "name": "value",
+      "unit": "℃",
+      "description": "温度"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "unit": "(kg·s)/m2",
+      "description": "粘度"
+    }
+  ],
+  "data_inputs": [
+    {
+      "name": "table",
+      "rule_type": "correlation",
+      "input_unit": "℃",
+      "output_unit": "(kg·s)/m2"
+    }
+  ]
+}

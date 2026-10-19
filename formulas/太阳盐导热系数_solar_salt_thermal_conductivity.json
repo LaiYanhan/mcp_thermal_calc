@@ -1,0 +1,30 @@
+{
+  "id": "properties.solar_salt_thermal_conductivity",
+  "name": "太阳盐导热系数",
+  "category": "properties",
+  "formula_type": "empirical",
+  "handler": "data.correlation",
+  "description": "由场景内JSON关联式系数求值，温区只作参考",
+  "inputs": [
+    {
+      "name": "value",
+      "unit": "℃",
+      "description": "温度"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "unit": "kcal/(m·h·℃)",
+      "description": "导热系数"
+    }
+  ],
+  "data_inputs": [
+    {
+      "name": "table",
+      "rule_type": "correlation",
+      "input_unit": "℃",
+      "output_unit": "kcal/(m·h·℃)"
+    }
+  ]
+}

@@ -2,14 +2,14 @@
   "id": "sizing.transformer_sizing",
   "name": "主变压器标准容量查表选型",
   "category": "sizing",
-  "description": "根据电加热器选型功率（功率因数取1.0），从国家标准变压器容量序列 [6.3, 8, 10, 12.5, 16, 20, 25, 31.5, 40, 50, 63, 90, 120] MVA 中向上匹配最接近的标准容量。",
-  "notes": "若计算容量超过 120 MVA，建议采用多台变压器组合。",
+  "description": "由场景内标准容量表向上选档；有功功率须先按场景功率因数换算为视在容量。",
+  "notes": "表外取首末行；多台设备组合须另行显式建模。",
   "formula_type": "empirical",
   "inputs": [
     {
-      "name": "heater_sizing_mw",
-      "unit": "MW",
-      "description": "电加热器选型功率",
+      "name": "value",
+      "unit": "MVA",
+      "description": "所需视在容量",
       "min_value": 1.0,
       "max_value": 2000.0,
       "default_value": null,
@@ -18,7 +18,7 @@
   ],
   "outputs": [
     {
-      "name": "transformer_capacity_mva",
+      "name": "result",
       "unit": "MVA",
       "description": "主变压器标准额定容量",
       "min_value": 6.3,
@@ -29,5 +29,13 @@
   ],
   "expression": null,
   "is_bidirectional": false,
-  "handler": "sizing.transformer_capacity"
+  "handler": "data.discrete",
+  "data_inputs": [
+    {
+      "name": "table",
+      "rule_type": "discrete",
+      "input_unit": "MVA",
+      "output_unit": "MVA"
+    }
+  ]
 }

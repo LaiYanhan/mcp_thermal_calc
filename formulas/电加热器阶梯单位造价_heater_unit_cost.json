@@ -1,0 +1,10 @@
+{
+  "id": "cost.heater_unit_cost",
+  "name": "电加热器阶梯单位造价",
+  "category": "cost",
+  "formula_type": "empirical",
+  "handler": "data.piecewise",
+  "inputs": [{"name": "value", "unit": "MW", "description": "电加热器功率"}],
+  "outputs": [{"name": "result", "unit": "万元/MW", "description": "电加热器单位造价"}],
+  "data_inputs": [{"name": "table", "rule_type": "piecewise", "input_unit": "MW", "output_unit": "万元/MW"}]
+}

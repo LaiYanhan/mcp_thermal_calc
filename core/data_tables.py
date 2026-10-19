@@ -2,6 +2,7 @@
 
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, localcontext
 from bisect import bisect_left, bisect_right
+import math
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
@@ -14,7 +15,7 @@ class DataDefinition(BaseModel):
 
 class DataPortDefinition(DataDefinition):
     name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]*$")
-    rule_type: Literal["fixed_step", "discrete", "piecewise"]
+    rule_type: Literal["fixed_step", "discrete", "piecewise", "correlation"]
     input_unit: str = Field(min_length=1)
     output_unit: str = Field(min_length=1)
 
@@ -68,7 +69,24 @@ class PiecewiseTable(TableDefinition):
         return self
 
 
-DataTable = Annotated[FixedStepTable | DiscreteTable | PiecewiseTable, Field(discriminator="rule_type")]
+class CorrelationTerm(DataDefinition):
+    coefficient: FiniteFloat
+    power: FiniteFloat
+
+
+class CorrelationTable(TableDefinition):
+    rule_type: Literal["correlation"]
+    terms: list[CorrelationTerm] = Field(min_length=1)
+    divisor: FiniteFloat = 1
+
+    @model_validator(mode="after")
+    def check_divisor(self) -> Self:
+        if self.divisor == 0:
+            raise ValueError("关联式除数不能为零")
+        return self
+
+
+DataTable = Annotated[FixedStepTable | DiscreteTable | PiecewiseTable | CorrelationTable, Field(discriminator="rule_type")]
 
 
 def fixed_step(inputs: dict[str, float], data: dict[str, FixedStepTable]) -> dict[str, float]:
@@ -103,3 +121,9 @@ def piecewise(inputs: dict[str, float], data: dict[str, PiecewiseTable]) -> dict
     rows = data["table"].rows
     index = max(bisect_right([row.threshold for row in rows], inputs["value"]) - 1, 0)
     return {"result": rows[index].value}
+
+
+def correlation(inputs: dict[str, float], data: dict[str, CorrelationTable]) -> dict[str, float]:
+    table = data["table"]
+    value = sum(term.coefficient * math.pow(inputs["value"], term.power) for term in table.terms) / table.divisor
+    return {"result": value}

@@ -130,9 +130,10 @@ def test_json_resolution_never_executes_python_files(tmp_path):
 def test_empirical_json_must_match_handler_pin_contract(damage):
     definition = {
         "id": "test.handler_contract", "name": "规格整定", "category": "sizing", "formula_type": "empirical",
-        "handler": "sizing.sgs_power",
-        "inputs": [{"name": "sgs_power", "unit": "MW", "description": "需求功率"}],
-        "outputs": [{"name": "sgs_sizing_mw", "unit": "MW", "description": "选型规格"}],
+        "handler": "data.fixed_step",
+        "inputs": [{"name": "value", "unit": "MW", "description": "需求功率"}],
+        "outputs": [{"name": "result", "unit": "MW", "description": "选型规格"}],
+        "data_inputs": [{"name": "table", "rule_type": "fixed_step", "input_unit": "MW", "output_unit": "MW"}],
     }
     if damage == "unit":
         definition["inputs"][0]["unit"] = "kW"

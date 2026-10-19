@@ -52,3 +52,39 @@ def isolated_workspace(tmp_path, monkeypatch):
     default_formula_registry._formulas = original_formulas
     pipeline_registry._pipelines = original_pipelines
     workflow_manager._sessions = original_sessions
+
+
+@pytest.fixture
+def mcp_workflow(monkeypatch):
+    """通过公开 MCP 注册与确认执行迁移样例，只阻止打开浏览器。"""
+    import json
+    from server import mcp_server as mcp
+    monkeypatch.setattr(mcp, "editor_link", lambda *args: "http://localhost/fixture")
+    monkeypatch.setattr(mcp.webbrowser, "open", lambda *args: False)
+    sequence = 0
+
+    def run(pipeline, parameters):
+        nonlocal sequence
+        sequence += 1
+        pipeline = deepcopy(pipeline)
+        pipeline["id"] = f"migration_fixture_{sequence}"
+        session = pipeline["id"]
+
+        def call(name, **kwargs):
+            return json.loads(getattr(mcp, name)(**kwargs))
+
+        saved = call("register_new_pipeline", pipeline_definition=pipeline,
+                     pipeline_filename=session + ".json", human_approved=True)
+        assert saved.get("status") == "SUCCESS", saved
+        proposed = call("match_or_propose_scenario", session_id=session, user_requirements="自动化迁移验收样例",
+                        scenario_id=session, initial_inputs=parameters)
+        assert proposed.get("status") == "SCENARIO_PROPOSED", proposed
+        assert call("execute_calculation", session_id=session)["security_block"]
+        call("confirm_scenario", session_id=session, confirmed=True)
+        inspection = call("inspect_and_validate_parameters", session_id=session)
+        assert inspection.get("is_complete"), inspection
+        call("confirm_parameters", session_id=session, confirmed=True)
+        result = call("execute_calculation", session_id=session)
+        assert result.get("status") == "CALCULATED", result
+        return result["result"]
+    return run

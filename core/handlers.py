@@ -1,14 +1,12 @@
 """经验算子的静态白名单；JSON 只能按名称引用，不能导入或执行代码。"""
 
-import math
 from dataclasses import dataclass, field
 from typing import Callable
 
 from iapws import IAPWS95
 
-from constants.equipment_catalog import snap_heater_power, snap_sgs_power, snap_transformer_capacity
 from core.types import Pin, units_match
-from core.data_tables import fixed_step, discrete, piecewise
+from core.data_tables import fixed_step, discrete, piecewise, correlation
 
 
 @dataclass(frozen=True)
@@ -52,6 +50,7 @@ def get_handler(name: str, inputs: list[Pin], outputs: list[Pin], data_inputs=No
 _handlers["data.fixed_step"] = Handler(fixed_step, {"value": "*"}, {"result": "*"}, {"table": "fixed_step"})
 _handlers["data.discrete"] = Handler(discrete, {"value": "*"}, {"result": "*"}, {"table": "discrete"})
 _handlers["data.piecewise"] = Handler(piecewise, {"value": "*"}, {"result": "*"}, {"table": "piecewise"})
+_handlers["data.correlation"] = Handler(correlation, {"value": "*"}, {"result": "*"}, {"table": "correlation"})
 
 
 @register_handler("iapws95.steam_enthalpy", inputs={"steam_pressure": "MPa", "steam_temperature": "℃"}, outputs={"steam_enthalpy": "kJ/kg"})
@@ -76,23 +75,3 @@ def water_enthalpy(inputs):
     pressure = inputs["feedwater_pressure"] * 10.0 / 10.0
     state = IAPWS95(P=pressure, T=inputs["feedwater_temperature"] + 273.15)
     return {"feedwater_enthalpy": float(state.h)}
-
-
-@register_handler("sizing.sgs_power", inputs={"sgs_power": "MW"}, outputs={"sgs_sizing_mw": "MW"})
-def sgs_power(inputs):
-    return {"sgs_sizing_mw": snap_sgs_power(inputs["sgs_power"])}
-
-
-@register_handler("sizing.heater_power", inputs={"electric_heater_power": "MW"}, outputs={"heater_sizing_mw": "MW"})
-def heater_power(inputs):
-    return {"heater_sizing_mw": snap_heater_power(inputs["electric_heater_power"])}
-
-
-@register_handler("sizing.transformer_capacity", inputs={"heater_sizing_mw": "MW"}, outputs={"transformer_capacity_mva": "MVA"})
-def transformer_capacity(inputs):
-    return {"transformer_capacity_mva": snap_transformer_capacity(inputs["heater_sizing_mw"], power_factor=1.0)}
-
-
-@register_handler("sizing.salt_mass_roundup", inputs={"salt_mass": "t"}, outputs={"salt_mass_tons": "t"})
-def salt_mass_roundup(inputs):
-    return {"salt_mass_tons": math.ceil(inputs["salt_mass"] / 10.0) * 10.0}

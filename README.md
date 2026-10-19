@@ -2,7 +2,7 @@
 
 为企业构建的确定性工程热工计算、离散设备规格选型与经济性测算 MCP 工具服务与 Agent 技能体系。
 
-当前版本使用 JSON 原子公式和自包含管道，内置 25 个公式、2 个场景。业务流程见 [项目 Skill](skills/thermal-calculation-agent/SKILL.md)，扩展示例见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)，实现与审查状态见 [HANDOFF.md](HANDOFF.md)。
+当前版本使用 JSON 原子公式和自包含管道，内置 37 个公式、2 个场景。业务流程见 [项目 Skill](skills/thermal-calculation-agent/SKILL.md)，扩展示例见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)，常量迁移边界见 [ADR-0017](docs/adr/0017-all-engineering-data-in-json.md)。
 
 ##  系统核心特性与架构原则
 1. **AI 严禁私自计算（100% 确定性程序执行）**：所有热工物性（IAPWS-95）、能量守恒、设备选型与电费测算完全由 Python 核心计算，彻底杜绝大模型计算幻觉；
@@ -19,16 +19,17 @@
 .
 ├── GLOSSARY.md               # 领域统一词汇表 (Domain Glossary)
 ├── docs/adr/                 # 架构决策记录
-├── constants/                # 独立工程常量与默认参数库
-│   ├── default_parameters.py # 历史基准资料；运行时默认值以内联 JSON 为准
-│   ├── molten_salt.py        # HITEC/太阳盐热物性状态方程 (密度/导热/粘度/比热)
-│   └── equipment_catalog.py  # SGS/电加热器/国标变压器规格序列与阶梯造价函数
+├── constants/                  # JSON 工程资料，不包含 Python 模块
+│   ├── default_parameters.json # 原工程默认参数完整存档；运行时默认值以内联场景为准
+│   ├── molten_salt.json        # HITEC/太阳盐元数据、物性拟合系数与单位
+│   └── equipment_catalog.json  # 设备档位、刻度、功率因数与阶梯造价表
 ├── core/                     # 核心计算与调度引擎
 │   ├── types.py              # Pin/引脚、FormulaMetadata、PipelineStep 等类型定义
 │   ├── formula.py            # AlgebraicFormula (SymPy双向)、EmpiricalFormula 与注册表
 │   ├── pipeline.py           # Pipeline DAG 拓扑执行引擎与校验
 │   ├── definitions.py        # 严格 Pydantic JSON 契约
-│   ├── handlers.py           # IAPWS-95 与设备选型处理函数白名单
+│   ├── handlers.py           # IAPWS-95 与通用数据算法白名单
+│   ├── data_tables.py        # JSON 数据契约、整定、分段与幂次关联式求值
 │   ├── catalog.py            # 先加载公式 JSON，再加载管道 JSON
 │   └── state_machine.py      # 分阶段状态机与人工确认守卫控制器
 ├── formulas/                 # <中文计算含义>_<英文标识>.json；通用原子公式
@@ -143,7 +144,9 @@ MCP `register_new_formula(formula_definition=JSON对象, filename="中文计算�
 
 会话接口沿用单数路径 `GET /api/session/{session_id}` 与 `POST /api/session/{session_id}/pipeline`。`match_or_propose_scenario` 的 `new_scenario_def` 仅用于当前会话提议；全局复用需通过注册工具保存，或手工保存审核后的 JSON 并重启。示例和字段边界见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)。
 
-通用工程数据由场景 JSON 的 `data_tables` 自包含保存，公式通过 `data_inputs` 声明数据端口，节点用 `data_map` 绑定同场景表 ID。`data.fixed_step`、`data.discrete` 和 `data.piecewise` 分别提供固定步长整定、离散档位整定及分段取值；两种整定均支持 `ceil`、`floor`、`nearest`，中点半入，查表超界取首末行。新增同类数据只改 JSON；单值常量继续使用 `required_inputs` 和 `kind="constant"`。现有设备专用 handler 保留为旧定义兼容入口，新数据使用通用规则。表和绑定随目录、保存及会话快照完整往返，修改表后沿用原有重新确认流程。字段与中性示例见上述 JSON 说明；加载方式、IAPWS95、人工确认及预览边界沿用现有行为。
+通用工程数据由场景 JSON 的 `data_tables` 自包含保存，公式通过 `data_inputs` 声明数据端口，节点用 `data_map` 绑定同场景表 ID。`data.fixed_step`、`data.discrete` 和 `data.piecewise` 分别提供固定步长整定、离散档位整定及分段取值；两种整定均支持 `ceil`、`floor`、`nearest`，中点半入，查表超界取首末行。`data.correlation` 读取 JSON 中的系数、幂次和除数求值，不包含材料专用分支。新增同类数据只改 JSON；单值常量继续使用 `required_inputs` 和 `kind="constant"`。表和绑定随目录、保存及会话快照完整往返，修改表后沿用原有重新确认流程。
+
+`constants/` 原有 Python 数据和设备专用 handler 已删除，完整资料迁入上述三个 JSON。复用资料时，将所需参数和表复制到当前场景；资料文件不成为强制共享注册中心，修改资料不会隐式改变已有场景或会话快照。两条默认场景已绑定 JSON 中的熔盐订货刻度，原默认成果保持相同。设备公式 ID 保留，数值引脚统一为 `value` / `result`，须通过节点绑定表；旧自定义场景和草稿需按新契约调整后重新确认。变压器公式接收 MVA 视在容量，MW 有功功率须先通过 `electrical.apparent_capacity` 配合场景 JSON 功率因数换算；表外沿用首末档位，不隐式推算多台组合。字段、迁移方式及资料位置见上述 JSON 说明；IAPWS95、人工确认及预览边界沿用现有行为。
 
 压力输入统一采用 **MPa 绝压**；表压须由调用者依据现场大气压换算。带单位输入可使用 `{"value": 1.5, "unit": "MPa"}`，不同倍率单位需显式换算。范围和相态信息供工程师判断；饱和边界沿用干饱和蒸汽比焓，不通过温度、压力猜测湿蒸汽干度。
 

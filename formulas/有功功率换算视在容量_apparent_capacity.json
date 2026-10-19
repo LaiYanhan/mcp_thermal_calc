@@ -1,0 +1,26 @@
+{
+  "id": "electrical.apparent_capacity",
+  "name": "有功功率换算视在容量",
+  "category": "electrical",
+  "formula_type": "algebraic",
+  "expression": "capacity = power / power_factor",
+  "inputs": [
+    {
+      "name": "power",
+      "unit": "MW",
+      "description": "有功功率"
+    },
+    {
+      "name": "power_factor",
+      "unit": "/",
+      "description": "功率因数"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "capacity",
+      "unit": "MVA",
+      "description": "所需视在容量"
+    }
+  ]
+}

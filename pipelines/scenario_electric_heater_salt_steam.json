@@ -286,12 +286,15 @@
       "formula_id": "sizing.salt_mass_roundup",
       "solve_target": null,
       "input_map": {
-        "salt_mass": "salt_mass"
+        "value": "salt_mass"
       },
       "output_map": {
-        "salt_mass_tons": "salt_mass_tons"
+        "result": "salt_mass_tons"
       },
-      "description": "理论熔盐净重向上圆整至整 10 吨采购订货量"
+      "description": "理论熔盐净重向上圆整至整 10 吨采购订货量",
+      "data_map": {
+        "table": "salt_mass_scale"
+      }
     },
     {
       "step_id": "step_11_daily_electricity",
@@ -386,5 +389,16 @@
     }
   ],
   "layout": {},
-  "input_constraints": []
+  "input_constraints": [],
+  "data_tables": [
+    {
+      "id": "salt_mass_scale",
+      "description": "熔盐订货量整定刻度",
+      "input_unit": "t",
+      "output_unit": "t",
+      "rule_type": "fixed_step",
+      "step": 10.0,
+      "mode": "ceil"
+    }
+  ]
 }

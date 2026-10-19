@@ -40,18 +40,3 @@ def test_algebraic_bidirectional_solving():
     # 逆向 3: 已知SGS功率与效率，反求理论产汽功率
     rev_theo = sgs_f.solve({"sgs_power": sgs_res["sgs_power"], "heat_exchanger_efficiency": 0.99}, "theoretical_power")
     assert abs(rev_theo - expected_mw) < 1e-4
-
-def test_discrete_equipment_sizing():
-    """测试离散选型原子公式"""
-    sgs_sizing_f = default_formula_registry.get("sizing.sgs_sizing")
-    res = sgs_sizing_f.execute({"sgs_power": 75.33})
-    assert res["sgs_sizing_mw"] == 80.0
-
-    heater_sizing_f = default_formula_registry.get("sizing.heater_sizing")
-    res_heater = heater_sizing_f.execute({"electric_heater_power": 77.25})
-    assert res_heater["heater_sizing_mw"] == 80.0
-
-    tf_sizing_f = default_formula_registry.get("sizing.transformer_sizing")
-    res_tf = tf_sizing_f.execute({"heater_sizing_mw": 80.0})
-    # 80 MW 向上匹配最接近的标准容量档位为 90 MVA
-    assert res_tf["transformer_capacity_mva"] == 90.0
