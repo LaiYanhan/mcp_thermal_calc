@@ -16,7 +16,7 @@
 3. MCP 注册工具使用严格 Pydantic JSON schema，拒绝未知字段、错误类型及未注册 handler；经验公式的引脚名称与单位须匹配 handler 契约。验证后原子写入资产文件并即时注册。前端保留原有编辑载荷，由后端转换为同一标准公式 JSON；会话草稿和布局继续保存在数据目录。
 4. `min_value` / `max_value` 是前端参考元数据。旧输入约束可往返保存，其范围与大小关系均不拦截数值。移除熔盐温区及水汽相态的应用层审查。有限数值允许进入计算；除零、非有限实数结果和 IAPWS-95 自身的不可求解状态仍报告错误，不夹值、不伪造物性或引入近似替代。
 5. ADR-0004 完整有效：场景提议、场景确认、参数检查、参数确认、执行计算的守卫全部保留。注册、打开编辑器、参数更新均不授予计算权限；修改算子或拓扑撤销原授权。`core/state_machine.py` 不作修改。
-6. `ui_prototype.html` 与 `ui_editor.js` 保持原样，会话 API、变量单位、布局数据及节点求解方向保持兼容。目录工具另提供完整 JSON `definition`，供 Agent 检查与复用。
+6. JSON 重构保持原 HTML 页面与 `ui_editor.js` 内容不变，会话 API、变量单位、布局数据及节点求解方向保持兼容。HTML 后续由根目录 `ui_prototype.html` 移至 `preview/pipeline_editor_preview.html`，服务直接读取该文件，不再经过预览重定向。目录工具另提供完整 JSON `definition`，供 Agent 检查与复用。
 
 ## 后果与验证
 

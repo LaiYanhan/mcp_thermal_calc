@@ -88,3 +88,6 @@ desktop.ini
 
 # 本地工程会话与自定义算子
 .data/
+
+#skill产生的文件
+.scratch/

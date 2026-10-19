@@ -1,2 +1,249 @@
-<!-- 自动重定向至根目录的 ui_prototype.html -->
-<meta http-equiv="refresh" content="0; url=../ui_prototype.html">
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工业热工流程与参数可视化核对系统</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: {
+              bg: '#FAF7EE',        // 典雅暖米白画布底色
+              card: '#FFFFFF',
+              border: '#E2DDD2',
+              borderDark: '#78716C',
+              text: '#0F172A',       // 纯正高对比度深炭黑
+              muted: '#475569',
+              yellow: '#FFD600',     // 工业暖黄
+              yellowHover: '#E5C000',
+            },
+            // 柔和低饱和四色语义系统
+            softPin: {
+              inText: '#14532D',     // 深草绿
+              inBg: '#F0FDF4',
+              inBorder: '#BBF7D0',
+              inDot: '#16A34A',
+              
+              opText: '#1E3A8A',     // 板岩蓝
+              opBg: '#EFF6FF',
+              opBorder: '#BFDBFE',
+              opDot: '#2563EB',
+              
+              constText: '#78350F',  // 暖沙金驼
+              constBg: '#FEFCE8',
+              constBorder: '#FEF08A',
+              constDot: '#D97706',
+              
+              outText: '#581C87',    // 雅致深紫
+              outBg: '#FAF5FF',
+              outBorder: '#E9D5FF',
+              outDot: '#9333EA',
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Consolas', 'monospace'],
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 高清晰度文字抗锯齿与锐利渲染 */
+    * {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+    .bg-paper-grid {
+      background-color: #FAF7EE;
+      background-image: radial-gradient(#DDD6C6 1.2px, transparent 1.2px);
+      background-size: 24px 24px;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #D8D2C2;
+      border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #EFECE4;
+    }
+    /* 节点极简卡片：可拖拽感 */
+    .flow-node-box {
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+      transition: box-shadow 0.16s ease-out, border-color 0.16s ease-out, transform 0.12s ease-out;
+      cursor: grab;
+      user-select: none;
+    }
+    .flow-node-box:active {
+      cursor: grabbing;
+    }
+    .flow-node-box:hover {
+      border-color: #0F172A;
+      box-shadow: 0 6px 18px -3px rgba(15, 23, 42, 0.12);
+    }
+    .flow-node-box.selected {
+      border-color: #0F172A !important;
+      box-shadow: 0 0 0 2px #FFD600, 0 8px 20px -3px rgba(15, 23, 42, 0.18) !important;
+    }
+    /* 超紧凑微型常量胶囊 (140px, 纯中文) */
+    .node-constant {
+      width: 150px;
+      background: #FEFCE8;
+      border: 1px solid #FEF08A;
+      border-radius: 6px;
+    }
+    .node-constant:hover {
+      border-color: #D97706;
+    }
+    /* 超紧凑微型输入胶囊 (140px, 纯中文) */
+    .node-input {
+      width: 150px;
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+      border-radius: 6px;
+    }
+    .node-input:hover {
+      border-color: #16A34A;
+    }
+    /* 核心算子标准卡片 (270px) */
+    .node-step {
+      width: 270px;
+      background: #FFFFFF;
+      border: 1px solid #BFDBFE;
+      border-radius: 8px;
+    }
+    /* 四色语义连线与悬停高亮 */
+    .wire-base {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: stroke-width 0.15s ease, stroke 0.15s ease, opacity 0.15s ease;
+    }
+    .wire-input {
+      stroke: #16A34A;
+      stroke-width: 1.8;
+      opacity: 0.75;
+    }
+    .wire-constant {
+      stroke: #D97706;
+      stroke-width: 1.8;
+      stroke-dasharray: 4 2;
+      opacity: 0.75;
+    }
+    .wire-step {
+      stroke: #2563EB;
+      stroke-width: 2.0;
+      opacity: 0.85;
+    }
+    .wire-highlight {
+      stroke: #2563EB !important;
+      stroke-width: 3.2 !important;
+      opacity: 1 !important;
+      filter: drop-shadow(0 0 3px rgba(37, 99, 235, 0.4));
+    }
+    .wire-dimmed {
+      opacity: 0.12 !important;
+    }
+    /* 画布平移手势 */
+    .canvas-panning {
+      cursor: grab;
+    }
+    .canvas-panning:active {
+      cursor: grabbing;
+    }
+  </style>
+</head>
+<body class="bg-paper-bg text-paper-text font-sans antialiased h-screen flex flex-col overflow-hidden select-none">
+  <header class="h-14 bg-white border-b border-paper-border px-6 flex items-center justify-between shrink-0 z-30">
+    <div class="flex items-center gap-4">
+      <div class="flex bg-[#EFECE4] p-1 rounded border border-[#DFD9CB] text-xs">
+        <button id="tab-stage-1" onclick="switchStage(1)" class="px-4 py-1 rounded font-bold">阶段 01</button>
+        <button id="tab-stage-2" onclick="switchStage(2)" class="px-4 py-1 rounded font-bold">阶段 02</button>
+      </div>
+      <span id="stage-desc-hint" class="text-xs font-bold text-slate-700">流程拓扑审核</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="openAddOperatorModal()" class="px-3 py-1.5 text-xs font-bold border border-slate-300 bg-white rounded">+ 新增算子</button>
+      <button onclick="openAddConstantModal()" class="px-3 py-1.5 text-xs font-bold border border-amber-300 bg-amber-50 text-amber-900 rounded">+ 新增常量</button>
+      <button onclick="resetLayoutPositions()" class="px-3 py-1.5 text-xs text-slate-600 font-bold">恢复默认排版</button>
+      <button id="btn-main-action" onclick="handlePrimaryAction()" class="px-5 py-1.5 text-xs font-black bg-paper-yellow text-black border border-black shadow-[2px_2px_0px_#0F172A]">确认场景拓扑</button>
+    </div>
+  </header>
+  <div id="editor-message" role="alert" class="hidden px-6 py-2 text-xs font-bold bg-red-50 text-red-800 border-b border-red-200"></div>
+  <div class="flex-1 flex overflow-hidden relative">
+    <main id="canvas-container" class="flex-1 overflow-hidden bg-paper-grid relative canvas-panning">
+      <div id="dag-workspace" class="relative select-text" style="transform-origin:0 0;margin:30px 40px;will-change:transform">
+        <svg id="svg-wiring-layer" class="absolute inset-0 pointer-events-none" style="overflow:visible" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow-step" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/></marker>
+            <marker id="arrow-input" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#16A34A"/></marker>
+            <marker id="arrow-const" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#D97706"/></marker>
+            <marker id="arrow-highlight" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563EB"/></marker>
+          </defs>
+        </svg>
+        <div id="node-layer"></div>
+        <div id="node-floating-toolbar" class="hidden absolute z-30 bg-slate-900 text-white rounded shadow-xl px-2 py-1 flex gap-2 text-xs font-bold">
+          <button onclick="triggerInsertBefore()">⬅ 前插算子</button>
+          <button onclick="triggerInsertAfter()">➡ 后插算子</button>
+          <button onclick="triggerReplace()" class="text-yellow-300">⇄ 替换</button>
+          <button onclick="triggerDeleteCurrent()" class="text-red-300">删除</button>
+        </div>
+      </div>
+      <div class="absolute bottom-3 left-5 bg-white/95 px-4 py-2 border border-paper-border rounded flex gap-5 text-[11px] font-bold pointer-events-none">
+        <span class="text-softPin-inText">● 输入引脚</span><span class="text-softPin-opText">● 公式算子</span><span class="text-softPin-constText">● 工程常量</span><span class="text-softPin-outText">● 输出成果</span>
+      </div>
+    </main>
+    <aside id="operator-drawer" class="absolute top-0 right-0 bottom-0 w-[390px] max-w-full bg-white border-l border-paper-border shadow-xl z-40 flex flex-col translate-x-full transition-transform">
+      <div class="px-5 py-4 border-b border-paper-border flex justify-between font-black text-sm"><span id="drawer-title">算子属性与流水线操作</span><button onclick="closeDrawer()">✕</button></div>
+      <div id="drawer-actions" class="p-3 flex justify-between text-xs border-b border-paper-border">
+        <button onclick="triggerInsertBefore()">⬅ 前插</button><button onclick="triggerInsertAfter()">➡ 后插</button><button onclick="triggerReplace()">⇄ 替换</button><button onclick="triggerDeleteCurrent()" class="text-red-700">删除</button>
+      </div>
+      <div class="flex-1 overflow-auto p-5 space-y-4 text-xs">
+        <label class="block font-bold">算子标识<input id="drawer-id" readonly class="mt-1 w-full p-2 border rounded bg-slate-50 font-mono"></label>
+        <label class="block font-bold">名称<input id="drawer-name" class="mt-1 w-full p-2 border rounded"></label>
+        <label id="drawer-formula-label" class="block font-bold">代数公式<textarea id="drawer-formula" rows="3" class="mt-1 w-full p-2 border border-blue-300 rounded font-mono text-blue-950"></textarea></label>
+        <label id="drawer-desc-label" class="block font-bold">工程物理机制<textarea id="drawer-desc" rows="3" class="mt-1 w-full p-2 border rounded"></textarea></label>
+        <label id="drawer-target-label" class="block font-bold">本次计算<select id="drawer-target" onchange="changeSolveTarget()" class="mt-1 w-full p-2 border rounded"></select></label>
+        <div id="drawer-pins" class="space-y-3"></div>
+      </div>
+      <div class="p-4 border-t flex justify-end gap-3"><button onclick="closeDrawer()" class="text-xs font-bold">取消</button><button onclick="saveDrawer()" class="px-4 py-2 bg-slate-900 text-white rounded text-xs font-bold">保存修改</button></div>
+    </aside>
+  </div>
+  <div id="modal-add-op" class="hidden fixed inset-0 z-50 bg-black/25 flex items-center justify-center">
+    <div class="bg-white rounded shadow-xl w-[520px] max-h-[90vh] overflow-auto border border-paper-border">
+      <div class="px-5 py-4 bg-paper-yellow flex justify-between font-black text-sm"><span id="modal-title">选装原子算子</span><button onclick="closeAddOperatorModal()">✕</button></div>
+      <div class="p-5 space-y-4 text-xs">
+        <label class="block font-bold">选择算子<select id="select-lib-op" onchange="changeOperatorSelection()" class="mt-1 w-full p-2.5 border rounded"></select></label>
+        <div id="new-operator-fields" class="hidden space-y-3">
+          <label class="block font-bold">新算子标识<input id="new-id" placeholder="custom.heat" class="w-full p-2 border rounded font-mono mt-1"></label>
+          <label class="block font-bold">中文名称<input id="new-name" class="w-full p-2 border rounded mt-1"></label>
+          <label class="block font-bold">代数公式<input id="new-eq" placeholder="y = x * 2" oninput="buildNewPinFields(true)" class="w-full p-2 border border-blue-300 rounded font-mono mt-1"></label>
+          <div id="new-pins" class="space-y-2"></div>
+        </div>
+      </div>
+      <div class="px-5 py-3 bg-paper-bg flex justify-end gap-3"><button onclick="closeAddOperatorModal()" class="text-xs font-bold">取消</button><button onclick="confirmNewOperator()" class="px-4 py-2 bg-paper-yellow border border-black text-xs font-black">确定插入流水线</button></div>
+    </div>
+  </div>
+  <div id="modal-add-const" class="hidden fixed inset-0 z-50 bg-black/25 flex items-center justify-center">
+    <div class="bg-white rounded shadow-xl w-[400px] border border-paper-border">
+      <div class="px-5 py-4 bg-amber-100 flex justify-between text-sm font-black"><span>新增工程常量</span><button onclick="closeAddConstantModal()">✕</button></div>
+      <div class="p-5 space-y-3 text-xs">
+        <label class="block font-bold">变量标识<input id="new-const-id" placeholder="custom_efficiency" class="w-full mt-1 p-2 border rounded font-mono"></label>
+        <label class="block font-bold">中文名称<input id="new-const-name" class="w-full mt-1 p-2 border rounded"></label>
+        <label class="block font-bold">数值<input id="new-const-val" type="number" step="any" class="w-full mt-1 p-2 border rounded"></label>
+        <label class="block font-bold">单位<input id="new-const-unit" value="/" class="w-full mt-1 p-2 border rounded"></label>
+      </div>
+      <div class="px-5 py-3 bg-paper-bg flex justify-end gap-3"><button onclick="closeAddConstantModal()" class="text-xs font-bold">取消</button><button onclick="confirmNewConstant()" class="px-4 py-2 bg-amber-400 border border-black text-xs font-black">添加常量至图纸</button></div>
+    </div>
+  </div>
+  <script src="/ui_editor.js"></script>
+</body>
+</html>

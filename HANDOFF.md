@@ -4,7 +4,7 @@
 本项目已从原先的“通过修改 Python 代码和模板支持扩展”重构为“通过纯 JSON 配置原子公式、输入输出变量及计算管道（DAG）”。
 所有方案已经过多轮技术推演（Grilling）与领域建模（Domain Modeling）严格对齐，重构规范已在 `.scratch/` 中就绪。
 
-6 张工单已于 2026-10-18 在 `refactor/json-pipeline-and-formulas` 分支实现；保留在当前分支供审核，尚未合并 `main`。完整回归 108 项通过；两个基准场景的全部默认输出与迁移前严格相等。
+6 张工单已于 2026-10-18 在 `refactor/json-pipeline-and-formulas` 分支实现，并合并、推送至 `main`。完整回归 108 项通过；两个基准场景的全部默认输出与迁移前严格相等。
 
 ---
 
@@ -22,7 +22,7 @@
 3. **严格保留人机协同状态机守卫**：
    - `core/state_machine.py` 的完整流转保持不变：`SCENARIO_PROPOSED` → `confirm_scenario` → `SCENARIO_CONFIRMED` → `inspect_and_validate_parameters` → `PARAMETERS_INSPECTED` → `confirm_parameters` → `PARAMETERS_CONFIRMED` → `execute_calculation` → `CALCULATED`；未经人工确认严禁执行计算。
 4. **前端 100% 视觉效果与功能零变动**：
-   - 前端画布（`ui_prototype.html`、`ui_editor.js`）零修改；
+   - JSON 重构未修改前端画布内容；HTML 后续移至 `preview/pipeline_editor_preview.html`，原重定向已移除，`ui_editor.js` 保留在根目录；
    - 后端通过 JSON 资产加载构建的会话视图（`get_session_view`）与原 API 保持 100% 字段级契约兼容，四色标注、DAG 连线、拓扑波浪布局由 JSON 数据无感驱动。
 5. **公式命名明确物理计算含义并解耦业务**：
    - 公式存放在 `formulas/` 目录下，文件命名格式为 `formulas/<中文计算含义>_<英文标识>.json`（如 `formulas/蒸汽进出口焓差_enthalpy_diff.json`）；
@@ -31,7 +31,7 @@
 ---
 
 ## 3. 核心参考制品索引 (Artifact References)
-详细需求与任务拆解请直接查阅以下文件，避免二次推演：
+公开架构依据见 `docs/adr/0014-pure-json-declarative-formulas-and-pipelines.md`。以下详细需求与工单记录仅保留于本地 `.scratch/`，不纳入 Git 或上传 GitHub：
 
 - **重构技术规范 (Spec)**:
   `.scratch/json-pipeline-formula-refactor/spec.md`
@@ -59,8 +59,8 @@
 
 - 25 个原子公式及 2 个自包含场景已迁入 JSON；启动入口为 `core/catalog.py`。
 - 扩展注册工具使用严格 JSON schema，文件直接写入资产目录；Python 模板与场景回退加载均已移除。
-- 前端 `ui_prototype.html`、`ui_editor.js` 与 `core/state_machine.py` 保持原样。
+- 正式 HTML 位于 `preview/pipeline_editor_preview.html`，与迁移前页面内容一致；服务和测试已同步路径，`ui_editor.js` 与 `core/state_machine.py` 保持原样。
 - 参见 ADR-0014、README 和更新后的项目技能说明；历史 `.data/` 资产未转换。
 - 范围提示不拦截有限输入；除零、非有限结果及物性库不可求解状态仍返回真实错误。
-- 两轴独立审查及修复后复审已完成，无遗留项；验证与审查详情见 [review.md](.scratch/json-pipeline-formula-refactor/review.md)。
+- 两轴独立审查及修复后复审已完成，无遗留项；详细审查日志仅保留在本地 `.scratch/json-pipeline-formula-refactor/review.md`，架构结论见 ADR-0014。
 - 项目 Skill、本机安装副本及 Markdown 说明已同步为 JSON 架构；主 Skill 保留六步确认流程，扩展示例独立放在 `references/json-definitions.md`。文档示例校验与 8 项接口相关回归通过，安装副本同步前已备份；旧 MCP 进程需重启才加载新接口。

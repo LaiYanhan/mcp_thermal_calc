@@ -35,6 +35,9 @@
 ├── pipelines/                # 自包含的 JSON DAG，内联输入、常量和默认值
 │   ├── scenario_electric_heater_salt_steam.json
 │   └── scenario_industrial_heat_pump_steam.json
+├── preview/
+│   └── pipeline_editor_preview.html # 正式编辑器页面，由服务直接读取，无重定向
+├── ui_editor.js              # 编辑器渲染与交互脚本
 ├── server/                   # MCP 服务端接口层
 │   └── mcp_server.py         # 基于 MCP 2.x SDK 暴露的 11 个工程与工作流工具
 ├── skills/                   # 智能体交互技能说明书
@@ -86,6 +89,8 @@ codex mcp get thermal-calc-sizing
 真实 stdio 集成回归见 `tests/test_mcp_stdio.py`，覆盖握手、工具发现、未授权计算拦截和确认后的完整计算。测试使用临时数据和自动化确认样例，不打开浏览器。
 
 ### 4. 使用本地编辑器
+
+HTML 源文件统一位于 `preview/pipeline_editor_preview.html`，原根目录 `ui_prototype.html` 已移入该位置，原预览重定向已移除。服务仍通过 `/` 和 `/editor` 直接返回完整页面，脚本路径保持 `/ui_editor.js`。
 ```bash
 .venv\Scripts\python run_web.py
 ```
@@ -134,3 +139,5 @@ MCP `register_new_formula(formula_definition=JSON对象, filename="中文计算�
 会话接口沿用单数路径 `GET /api/session/{session_id}` 与 `POST /api/session/{session_id}/pipeline`。`match_or_propose_scenario` 的 `new_scenario_def` 仅用于当前会话提议；全局复用需通过注册工具保存，或手工保存审核后的 JSON 并重启。示例和字段边界见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)。
 
 压力输入统一采用 **MPa 绝压**；表压须由调用者依据现场大气压换算。带单位输入可使用 `{"value": 1.5, "unit": "MPa"}`，不同倍率单位需显式换算。范围和相态信息供工程师判断；饱和边界沿用干饱和蒸汽比焓，不通过温度、压力猜测湿蒸汽干度。
+
+`.scratch/` 是本地工单、规范和临时记录目录，已通过 `.gitignore` 排除，不随仓库上传；公开的架构决策见 `docs/adr/`。

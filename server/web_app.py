@@ -63,7 +63,7 @@ class LocalEditorMiddleware:
 
 
 async def index_endpoint(request):
-    return HTMLResponse((ROOT / "ui_prototype.html").read_text(encoding="utf-8"))
+    return HTMLResponse((ROOT / "preview" / "pipeline_editor_preview.html").read_text(encoding="utf-8"))
 
 
 async def editor_script_endpoint(request):

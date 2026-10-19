@@ -56,14 +56,14 @@ def test_html_explicit_nesting_and_unique_ids():
             assert self.stack and self.stack.pop() == tag, f"HTML 标签错配: {tag}"
 
     parser = EditorParser()
-    parser.feed((ROOT / "ui_prototype.html").read_text(encoding="utf-8"))
+    parser.feed((ROOT / "preview" / "pipeline_editor_preview.html").read_text(encoding="utf-8"))
     assert not parser.stack
 
 
 def test_browser_script_compiles():
     node = shutil.which("node")
     assert node, "需要 Node 运行前端脚本语法回归"
-    source = (ROOT / "ui_prototype.html").read_text(encoding="utf-8")
+    source = (ROOT / "preview" / "pipeline_editor_preview.html").read_text(encoding="utf-8")
     scripts = re.findall(r"<script\b([^>]*)>([\s\S]*?)</script>", source, flags=re.I)
     for attributes, script in scripts:
         src = re.search(r'src="([^"]+)"', attributes)
