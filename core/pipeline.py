@@ -21,6 +21,8 @@ from core.types import (
 from core.storage import read_json, write_json, synchronized
 from core.assets import asset_directory, definition_path
 from core.definitions import PipelineDefinition
+from core.data_tables import DataTable
+from pydantic import TypeAdapter
 
 
 class PipelineValidationError(ValueError):
@@ -44,6 +46,7 @@ class Pipeline:
         steps: List[PipelineStep],
         layout: Optional[Dict[str, Any]] = None,
         input_constraints: Optional[List[InputConstraint]] = None,
+        data_tables=None,
     ):
         self.id = id
         self.name = name
@@ -54,6 +57,7 @@ class Pipeline:
         self.steps = steps
         self.layout = layout or {}
         self.input_constraints = list(input_constraints or [])
+        self.data_tables = TypeAdapter(list[DataTable]).validate_python(deepcopy([] if data_tables is None else data_tables))
 
     def _constraint_errors(self):
         inputs = {pin.name: pin for pin in self.required_inputs}
@@ -80,15 +84,18 @@ class Pipeline:
             error("empty", "流水线至少需要一个算子")
         if not isinstance(self.id, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", self.id):
             error("identity", "流水线 ID 格式不正确")
-        sources = {}
-        for pin in self.required_inputs:
-            if pin.name in sources:
-                error("duplicate", f"重复输入 {pin.name}")
-            sources[pin.name] = (None, pin.unit)
+        sources: dict[str, tuple[str | None, str]] = {}
+        for input_pin in self.required_inputs:
+            if input_pin.name in sources:
+                error("duplicate", f"重复输入 {input_pin.name}")
+            sources[input_pin.name] = (None, input_pin.unit)
         for message in self._constraint_errors():
             error("constraint", message)
         steps = {}
         contracts = {}
+        tables = {table.id: table for table in self.data_tables}
+        if len(tables) != len(self.data_tables):
+            error("duplicate", "数据表 ID 不能重复")
         for step in self.steps:
             if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", step.step_id):
                 error("identity", f"步骤 ID 格式不正确：{step.step_id}", step.step_id)
@@ -106,6 +113,18 @@ class Pipeline:
                 error("target", str(exc), step.step_id)
                 continue
             contracts[step.step_id] = (inputs, outputs)
+            ports = {port["name"]: port for port in formula.metadata.data_inputs}
+            if set(step.data_map) != set(ports):
+                error("data_pins", f"步骤 {step.step_id} 的数据端口与算子不一致", step.step_id)
+            for name, table_id in step.data_map.items():
+                table = tables.get(table_id)
+                port = ports.get(name)
+                if table is None:
+                    error("data_source", f"未声明的数据表：{table_id}", step.step_id, name)
+                elif port and (table.rule_type != port["rule_type"] or
+                               not units_match(table.input_unit, port["input_unit"]) or
+                               not units_match(table.output_unit, port["output_unit"])):
+                    error("data_contract", f"数据表 {table_id} 的规则或单位与端口不一致", step.step_id, name)
             if set(step.input_map) != set(inputs):
                 error("pins", f"步骤 {step.step_id} 的输入引脚与算子不一致", step.step_id)
             if set(step.output_map) != set(outputs):
@@ -117,7 +136,7 @@ class Pipeline:
                     error("duplicate", f"变量 {variable} 有多个来源", step.step_id, pin)
                 if pin in outputs:
                     sources[variable] = (step.step_id, outputs[pin].unit)
-        dependencies = {step.step_id: set() for step in self.steps}
+        dependencies: dict[str, set[str]] = {step.step_id: set() for step in self.steps}
         for step in self.steps:
             if step.step_id not in contracts:
                 continue
@@ -239,6 +258,7 @@ class Pipeline:
         records: List[StepExecutionRecord] = []
         outputs = {}
         results = []
+        tables = {table.id: table for table in self.data_tables}
 
         for step in steps:
             formula = reg.get(step.formula_id)
@@ -254,7 +274,8 @@ class Pipeline:
                 step_inputs[formula_pin] = float(ctx[ctx_var])
 
             # 执行公式
-            step_outputs = formula.execute_for_target(step_inputs, step.solve_target)
+            step_data = {name: tables[table_id] for name, table_id in step.data_map.items()}
+            step_outputs = formula.execute_for_target(step_inputs, step.solve_target, data=step_data)
             _, output_pins = formula.pin_contract(step.solve_target)
 
             # 映射输出写回全局上下文
@@ -303,6 +324,7 @@ class Pipeline:
             "steps": [step.model_dump() for step in self.steps],
             "layout": deepcopy(self.layout),
             "input_constraints": [asdict(constraint) for constraint in self.input_constraints],
+            "data_tables": [table.model_dump() for table in self.data_tables],
         }
 
     @classmethod
@@ -328,6 +350,7 @@ class Pipeline:
                 solve_target=s.get("solve_target"),
                 input_map=s["input_map"],
                 output_map=s["output_map"],
+                data_map=s.get("data_map", {}),
                 description=s.get("description", ""),
             )
             for s in data.get("steps", [])
@@ -342,6 +365,7 @@ class Pipeline:
             steps=steps,
             layout=data.get("layout", {}),
             input_constraints=[InputConstraint(**item) for item in data.get("input_constraints", [])],
+            data_tables=data.get("data_tables", []),
         )
 
     def insert_step(self, target_step_id: str, new_step: PipelineStep, position: str = "after") -> None:

@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, TypeAdapter
 
 from core.types import PipelineStep
+from core.data_tables import DataPortDefinition, DataTable
 
 
 class Definition(BaseModel):
@@ -36,6 +37,7 @@ class AlgebraicDefinition(FormulaDefinitionBase):
     expression: str = Field(min_length=1)
     handler: None = None
     is_bidirectional: Literal[True] = True
+    data_inputs: list[DataPortDefinition] = Field(default_factory=list, max_length=0)
 
 
 class EmpiricalDefinition(FormulaDefinitionBase):
@@ -43,6 +45,7 @@ class EmpiricalDefinition(FormulaDefinitionBase):
     handler: str = Field(min_length=1)
     expression: None = None
     is_bidirectional: Literal[False] = False
+    data_inputs: list[DataPortDefinition] = Field(default_factory=list)
 
 
 FormulaDefinition = Annotated[AlgebraicDefinition | EmpiricalDefinition, Field(discriminator="formula_type")]
@@ -71,3 +74,4 @@ class PipelineDefinition(Definition):
     steps: list[StepDefinition] = Field(min_length=1)
     layout: dict[str, dict[str, FiniteFloat]] = Field(default_factory=dict)
     input_constraints: list[ConstraintDefinition] = Field(default_factory=list)
+    data_tables: list[DataTable] = Field(default_factory=list)

@@ -52,6 +52,7 @@ def list_scenarios() -> str:
 def list_formulas() -> str:
     """列出原子公式。variables 给出所有参数的含义、单位和约束，solve_targets 为可选待求量。
     inputs/outputs 表示默认方向；节点设置 solve_target 后，其余 variables 全部作为已知输入。
+    definition.data_inputs 声明整表数据端口，由节点 data_map 绑定场景 data_tables。
     """
     return response(default_formula_registry.to_ai_catalog())
 
@@ -64,6 +65,7 @@ def match_or_propose_scenario(session_id: str, user_requirements: str, scenario_
     new_scenario_def.steps 中每步可设置 solve_target（公式变量名），input_map 绑定其余全部变量的来源，
     output_map 将待求变量映射到本步骤产出变量。省略 solve_target 使用公式默认方向，查表算子不可反算。
     全部步骤输出自动成为成果，不需要输出分组。先用 list_formulas 获取可求变量及物理含义。
+    场景 data_tables 保存工程数据，步骤 data_map 绑定公式的数据端口；input_map 只连接数值。
     """
     if scenario_id is None and new_scenario_def is None:
         return response({"status": "SCENARIO_SELECTION_REQUIRED", "message": "请从场景目录选择匹配的场景 ID，或提交新场景定义；不自动把陌生需求当成基准场景。", "scenarios": pipeline_registry.to_ai_catalog()})
@@ -136,6 +138,7 @@ def register_new_formula(formula_definition: FormulaDefinition, filename: str, h
 def register_new_pipeline(pipeline_definition: PipelineDefinition, pipeline_filename: str, human_approved: StrictBool) -> str:
     """将人工审核通过的自包含 JSON Pipeline 保存到 pipelines/，验证 DAG 后注册。
     输入与常量元数据及默认值均须内联；注册不替代场景和参数的人工确认。
+    data_tables 内联固定步长、离散档位或分段数据，steps.data_map 引用表 ID。
     """
     if human_approved is not True:
         return response({"status": "REJECTED", "error": "请先获得人类对流水线的审核同意"})

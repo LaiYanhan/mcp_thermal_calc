@@ -13,7 +13,7 @@ import sympy as sp
 from core.types import FormulaMetadata, FormulaType, Pin
 from core.storage import read_json, write_json, synchronized
 from core.assets import asset_directory, definition_path
-from core.definitions import formula_definition_adapter
+from core.definitions import AlgebraicDefinition, formula_definition_adapter
 from core.handlers import get_handler
 
 
@@ -89,7 +89,7 @@ class BaseFormula(ABC):
         self.pin_contract(solve_target)
         self.validate_inputs(inputs)
 
-    def execute_for_target(self, inputs, solve_target=None):
+    def execute_for_target(self, inputs, solve_target=None, data=None):
         self.pin_contract(solve_target)
         return self.execute(inputs)
 
@@ -158,7 +158,7 @@ class AlgebraicFormula(BaseFormula):
         for name, pin in known_pins.items():
             pin.validate(inputs[name])
 
-    def execute_for_target(self, inputs, solve_target=None):
+    def execute_for_target(self, inputs, solve_target=None, data=None):
         self.validate_knowns(inputs, solve_target)
         _, outputs = self.pin_contract(solve_target)
         return {target: self.solve(inputs, target) for target in outputs}
@@ -231,16 +231,25 @@ class EmpiricalFormula(BaseFormula):
     """
     经验公式 / 物性黑盒函数 / 离散查表选型
     """
-    def __init__(self, metadata: FormulaMetadata, func: Callable[[Dict[str, float]], Dict[str, float]]):
+    def __init__(self, metadata: FormulaMetadata, func: Callable[..., Dict[str, float]]):
         super().__init__(metadata)
         self.func = func
         self.metadata.formula_type = FormulaType.EMPIRICAL
         self.metadata.is_bidirectional = False
 
-    def execute(self, inputs: Dict[str, float]) -> Dict[str, float]:
+    def execute_for_target(self, inputs, solve_target=None, data=None):
+        self.pin_contract(solve_target)
+        return self.execute(inputs, data)
+
+    def execute(self, inputs: Dict[str, float], data=None) -> Dict[str, float]:
         self.validate_inputs(inputs)
 
-        results = self.func(inputs)
+        if self.metadata.data_inputs:
+            if data is None or set(data) != {port["name"] for port in self.metadata.data_inputs}:
+                raise ValueError("数据端口必须由管道节点绑定场景内表")
+            results = self.func(inputs, data)
+        else:
+            results = self.func(inputs)
 
         if set(results) != set(self.output_pins):
             raise ValueError(f"算子 {self.metadata.id} 未返回完整的声明输出")
@@ -287,9 +296,9 @@ class FormulaRegistry:
         pins = metadata.inputs + metadata.outputs
         if len({pin.name for pin in pins}) != len(pins):
             raise ValueError("算子输入输出引脚不能重复")
-        if metadata.formula_type == FormulaType.ALGEBRAIC:
-            return AlgebraicFormula(metadata, metadata.expression)
-        return EmpiricalFormula(metadata, get_handler(metadata.handler, metadata.inputs, metadata.outputs))
+        if isinstance(definition, AlgebraicDefinition):
+            return AlgebraicFormula(metadata, definition.expression)
+        return EmpiricalFormula(metadata, get_handler(definition.handler, metadata.inputs, metadata.outputs, metadata.data_inputs))
 
     @synchronized
     def load_directory(self, directory=None) -> None:
@@ -319,6 +328,8 @@ class FormulaRegistry:
     def save_operator(self, data: Dict[str, Any], update: bool = False) -> BaseFormula:
         """适配现有前端编辑契约；验证后以标准 JSON 资产持久化。"""
         fid = data.get("operator_id") if update else data.get("id")
+        if not isinstance(fid, str):
+            raise ValueError("算子 ID 必须为文本")
         original = self.get(fid) if update else None
         equation = data.get("formula", data.get("equation"))
         if original:
@@ -356,7 +367,7 @@ class FormulaRegistry:
         catalog = []
         for f in self._formulas.values():
             meta = f.metadata
-            item = {
+            item: Dict[str, Any] = {
                 "definition": asdict(meta),
                 "id": meta.id,
                 "name": meta.name,

@@ -111,7 +111,10 @@ function makeStep(pipeline, formula, variables, anchorId, mode) {
   const used = new Set(Object.keys(variables));
   const unique = (base, occupied) => { let name = base, index = 2; while (occupied.has(name)) name = `${base}_${index++}`; occupied.add(name); return name; };
   const step = {step_id: unique(formula.id.replace(/\./g, "_"), new Set(pipeline.steps.map(s => s.step_id))), formula_id: formula.id, description: "", input_map: {}, output_map: {}};
-  if (mode === "replace" && anchor?.formula_id === formula.id) step.solve_target = anchor.solve_target;
+  if (mode === "replace" && anchor?.formula_id === formula.id) {
+    step.solve_target = anchor.solve_target;
+    step.data_map = clone(anchor.data_map || {});
+  }
   const pins = effectivePins(formula, step);
   for (const pin of pins.inputs) {
     const old = mode === "replace" && anchor?.input_map[pin.name];

@@ -100,6 +100,7 @@ class FormulaMetadata:
     expression: Optional[str] = None  # 代数表达式（仅 ALGEBRAIC 类型使用，如 "P = m * dh / 3600"）
     is_bidirectional: bool = True  # 是否支持双向逆推
     handler: Optional[str] = None  # 经验算子的已注册处理函数标识
+    data_inputs: List[Dict[str, str]] = field(default_factory=list)
 
 
 class PipelineStep(BaseModel):
@@ -111,6 +112,7 @@ class PipelineStep(BaseModel):
     solve_target: Optional[str] = Field(None, description="本节点待求的公式变量；省略时沿用公式默认输出，其余变量全部作为已知量")
     input_map: Dict[str, str] = Field(..., description="当前已知引脚 -> 来源变量名（场景输入、常量或其他步骤输出）")
     output_map: Dict[str, str] = Field(..., description="当前待求引脚 -> 本步骤产出的管道变量名")
+    data_map: Dict[str, str] = Field(default_factory=dict, description="数据端口 -> 当前管道 data_tables 中的表 ID")
     description: str = Field("", description="本步骤的业务场景说明")
 
 

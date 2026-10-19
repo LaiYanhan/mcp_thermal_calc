@@ -49,11 +49,14 @@ test('同一来源同时绑定多个已知量时不移除该来源', () => {
 
 test('用同一个算子替换反算节点，保留该节点的求解方向', () => {
   const pipeline = configureTarget(powerPipeline(), 'power_step', powerFormula, 'flow');
+  pipeline.steps[0].data_map = {table: 'scene_table'};
   const variables = Object.fromEntries(powerFormula.variables.map(pin => [pin.name, pin]));
   const step = makeStep(pipeline, powerFormula, variables, 'power_step', 'replace');
   assert.equal(step.solve_target, 'flow');
   assert.deepEqual(step.input_map, pipeline.steps[0].input_map);
   assert.deepEqual(step.output_map, pipeline.steps[0].output_map);
+  assert.deepEqual(step.data_map, {table: 'scene_table'});
+  assert.notEqual(step.data_map, pipeline.steps[0].data_map);
 });
 
 test('正交线路绕过第三方卡片，包括折返与逆向连接', () => {

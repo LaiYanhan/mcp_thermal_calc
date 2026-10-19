@@ -143,6 +143,8 @@ MCP `register_new_formula(formula_definition=JSON对象, filename="中文计算�
 
 会话接口沿用单数路径 `GET /api/session/{session_id}` 与 `POST /api/session/{session_id}/pipeline`。`match_or_propose_scenario` 的 `new_scenario_def` 仅用于当前会话提议；全局复用需通过注册工具保存，或手工保存审核后的 JSON 并重启。示例和字段边界见 [JSON 定义与注册](skills/thermal-calculation-agent/references/json-definitions.md)。
 
+通用工程数据由场景 JSON 的 `data_tables` 自包含保存，公式通过 `data_inputs` 声明数据端口，节点用 `data_map` 绑定同场景表 ID。`data.fixed_step`、`data.discrete` 和 `data.piecewise` 分别提供固定步长整定、离散档位整定及分段取值；两种整定均支持 `ceil`、`floor`、`nearest`，中点半入，查表超界取首末行。新增同类数据只改 JSON；单值常量继续使用 `required_inputs` 和 `kind="constant"`。现有设备专用 handler 保留为旧定义兼容入口，新数据使用通用规则。表和绑定随目录、保存及会话快照完整往返，修改表后沿用原有重新确认流程。字段与中性示例见上述 JSON 说明；加载方式、IAPWS95、人工确认及预览边界沿用现有行为。
+
 压力输入统一采用 **MPa 绝压**；表压须由调用者依据现场大气压换算。带单位输入可使用 `{"value": 1.5, "unit": "MPa"}`，不同倍率单位需显式换算。范围和相态信息供工程师判断；饱和边界沿用干饱和蒸汽比焓，不通过温度、压力猜测湿蒸汽干度。
 
 `.scratch/` 是本地工单、规范和临时记录目录，已通过 `.gitignore` 排除，不随仓库上传；公开的架构决策见 `docs/adr/`。

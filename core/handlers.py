@@ -1,20 +1,22 @@
 """经验算子的静态白名单；JSON 只能按名称引用，不能导入或执行代码。"""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from iapws import IAPWS95
 
 from constants.equipment_catalog import snap_heater_power, snap_sgs_power, snap_transformer_capacity
 from core.types import Pin, units_match
+from core.data_tables import fixed_step, discrete, piecewise
 
 
 @dataclass(frozen=True)
 class Handler:
-    function: Callable[[dict[str, float]], dict[str, float]]
+    function: Callable[..., dict[str, float]]
     inputs: dict[str, str]
     outputs: dict[str, str]
+    data_inputs: dict[str, str] = field(default_factory=dict)
 
 
 _handlers: dict[str, Handler] = {}
@@ -29,15 +31,27 @@ def register_handler(name: str, *, inputs: dict[str, str], outputs: dict[str, st
     return register
 
 
-def get_handler(name: str, inputs: list[Pin], outputs: list[Pin]):
+def get_handler(name: str, inputs: list[Pin], outputs: list[Pin], data_inputs=None):
     if name not in _handlers:
         raise ValueError(f"未注册的处理函数：{name}")
     handler = _handlers[name]
     for pins, expected in ((inputs, handler.inputs), (outputs, handler.outputs)):
         actual = {pin.name: pin.unit for pin in pins}
-        if set(actual) != set(expected) or any(not units_match(actual[key], unit) for key, unit in expected.items()):
+        if set(actual) != set(expected) or any(unit != "*" and not units_match(actual[key], unit) for key, unit in expected.items()):
             raise ValueError(f"处理函数 {name} 的引脚名称或单位与 JSON 定义不一致")
+    ports = data_inputs or []
+    if len(ports) != len(handler.data_inputs) or {port["name"]: port["rule_type"] for port in ports} != handler.data_inputs:
+        raise ValueError(f"处理函数 {name} 的数据端口与 JSON 定义不一致")
+    if ports:
+        port = ports[0]
+        if not units_match(inputs[0].unit, port["input_unit"]) or not units_match(outputs[0].unit, port["output_unit"]):
+            raise ValueError(f"处理函数 {name} 的数据端口单位与数值引脚不一致")
     return handler.function
+
+
+_handlers["data.fixed_step"] = Handler(fixed_step, {"value": "*"}, {"result": "*"}, {"table": "fixed_step"})
+_handlers["data.discrete"] = Handler(discrete, {"value": "*"}, {"result": "*"}, {"table": "discrete"})
+_handlers["data.piecewise"] = Handler(piecewise, {"value": "*"}, {"result": "*"}, {"table": "piecewise"})
 
 
 @register_handler("iapws95.steam_enthalpy", inputs={"steam_pressure": "MPa", "steam_temperature": "℃"}, outputs={"steam_enthalpy": "kJ/kg"})
